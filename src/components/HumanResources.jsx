@@ -17,12 +17,17 @@ import {
   UserRound,
   Users,
   X,
+  Download,
 } from "lucide-react"
 
 import {
   getHRConfig,
   saveHRConfig,
 } from "../services/dataService"
+
+import {
+  downloadEmployeesExcel,
+} from "../services/excelService"
 
 /* =========================================================
    Default departments
@@ -1760,6 +1765,29 @@ function HumanResources({
                   size={17}
                 />
                 زیرواحد جدید
+              </button>
+
+              <button
+                onClick={() =>
+                  downloadEmployeesExcel(
+                    employees,
+                    {
+                      departments,
+                      customColumns: columns.filter(
+                        (column) => column.custom
+                      ),
+                      hiddenColumns,
+                    }
+                  )
+                }
+                disabled={
+                  employees.length === 0
+                }
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#d4a017]/50 bg-[#d4a017]/10 px-4 py-2.5 text-sm font-bold text-[#f0c040] transition hover:bg-[#d4a017]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                title="دانلود آخرین وضعیت منابع انسانی"
+              >
+                <Download size={17} />
+                دانلود اکسل نهایی
               </button>
 
               <button

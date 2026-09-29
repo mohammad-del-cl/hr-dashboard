@@ -30,12 +30,14 @@ import {
   saveFinanceConfig,
   getFinanceRecords,
   saveFinanceRecord,
+  saveFinanceRecords,
   deleteFinanceRecord,
 } from "../services/dataService"
 
 import {
-  readFinanceExcelFile,
+  readFinanceExcelPackage,
   downloadFinanceExcelTemplate,
+  downloadFinalFinanceExcel,
 } from "../services/excelService"
 
 
@@ -118,6 +120,78 @@ function normalizeName(value) {
 /*
   تبدیل نوع Excel به income / expense
 */
+function resolveFinanceType(record, config) {
+  const safeRecord = record || {}
+  const safeConfig = config || {}
+
+  const sectionId = normalizeId(safeRecord.sectionId)
+  const sectionName = normalizeName(
+    getExcelSectionName(safeRecord)
+  )
+
+  const incomeSections = Array.isArray(safeConfig.income)
+    ? safeConfig.income
+    : []
+
+  const expenseSections = Array.isArray(safeConfig.expense)
+    ? safeConfig.expense
+    : []
+
+  const matchesSection = (section) => {
+    if (!section) return false
+
+    const idMatches =
+      sectionId &&
+      normalizeId(section.id) === sectionId
+
+    const nameMatches =
+      sectionName &&
+      normalizeName(section.name) === sectionName
+
+    return Boolean(idMatches || nameMatches)
+  }
+
+  const isIncomeSection = incomeSections.some(matchesSection)
+  const isExpenseSection = expenseSections.some(matchesSection)
+
+  // Config بخش مالی منبع دقیق‌تری برای تشخیص نوع تراکنش است.
+  // این موضوع مخصوصاً برای رکوردهای Excel قدیمی یا رکوردهایی
+  // که type آن‌ها خالی/اشتباه است، جلوی ورود هزینه به درآمد را می‌گیرد.
+  if (isIncomeSection && !isExpenseSection) {
+    return "income"
+  }
+
+  if (isExpenseSection && !isIncomeSection) {
+    return "expense"
+  }
+
+  const normalizedType = normalizeName(safeRecord.type)
+
+  if (
+    normalizedType === "expense" ||
+    normalizedType === "expenses" ||
+    normalizedType === "هزینه" ||
+    normalizedType === "هزینه ها" ||
+    normalizedType === "هزینه‌ها" ||
+    normalizedType === "خرج" ||
+    normalizedType === "cost"
+  ) {
+    return "expense"
+  }
+
+  if (
+    normalizedType === "income" ||
+    normalizedType === "incomes" ||
+    normalizedType === "درآمد"
+  ) {
+    return "income"
+  }
+
+  // برای سازگاری با منطق قبلی، مقدار ناشناخته income محسوب می‌شود.
+  return normalizeFinanceType(safeRecord.type)
+}
+
+
 function normalizeFinanceType(value) {
   const type = normalizeName(value)
 
@@ -448,7 +522,7 @@ function normalizeFinanceConfig(
     id: "finance-config",
 
     income:
-      income.length > 0
+      Array.isArray(config?.income)
         ? income
         : DEFAULT_FINANCE_CONFIG.income.map(
             (section) => ({
@@ -460,7 +534,7 @@ function normalizeFinanceConfig(
           ),
 
     expense:
-      expense.length > 0
+      Array.isArray(config?.expense)
         ? expense
         : DEFAULT_FINANCE_CONFIG.expense.map(
             (section) => ({
@@ -1110,106 +1184,123 @@ export default function FinancialAffairs({
 
     setImportingExcel(true)
 
+    let previousConfig = null
+
     try {
+      const financePackage =
+        await readFinanceExcelPackage(file)
+
       const importedRecords =
-        await readFinanceExcelFile(
-          file
-        )
+        Array.isArray(financePackage?.records)
+          ? financePackage.records
+          : []
 
       if (
-        !Array.isArray(
-          importedRecords
-        ) ||
-        importedRecords.length ===
-          0
+        importedRecords.length === 0 &&
+        !financePackage?.config
       ) {
         alert(
-          "هیچ تراکنشی از فایل Excel خوانده نشد."
+          "هیچ تراکنش یا تنظیمات مالی از فایل Excel خوانده نشد."
         )
 
         return
       }
 
       /*
-        ساخت یک Config مستقل برای
-        پردازش Excel
+        Excel نهایی اگر finance_config داشته باشد، همان Config
+        منبع اصلی است؛ در غیر این صورت Config فقط از رکوردهای Excel
+        جدید ساخته می‌شود. این باعث می‌شود بخش‌هایی که تراکنش ندارند
+        نیز در خروجی/ورودی رفت‌وبرگشتی حفظ شوند.
       */
-      const newConfig = {
-        id: "finance-config",
-
-        income: [
-          ...(config.income || []),
-        ].map(
-          (section) => ({
-            id:
-              normalizeId(
-                section.id
-              ),
-            name:
-              String(
-                section.name
-              ).trim(),
-          })
-        ),
-
-        expense: [
-          ...(config.expense || []),
-        ].map(
-          (section) => ({
-            id:
-              normalizeId(
-                section.id
-              ),
-            name:
-              String(
-                section.name
-              ).trim(),
-          })
-        ),
+      const previousSections = {
+        income: Array.isArray(config?.income)
+          ? config.income
+          : [],
+        expense: Array.isArray(config?.expense)
+          ? config.expense
+          : [],
       }
 
+      const importedConfig = financePackage?.config
+        ? normalizeFinanceConfig(financePackage.config)
+        : null
 
-      /* =====================================================
-         پیدا کردن یا ساخت بخش‌ها
-      ===================================================== */
+      const newConfig = importedConfig || {
+        id: "finance-config",
+        income: [],
+        expense: [],
+      }
 
-      const preparedRows =
-        importedRecords.map(
-          (record) => {
-            const type =
-              normalizeFinanceType(
-                record.type
-              )
+      /* اگر فایل Config نداشت، بخش‌ها را از رکوردهای جدید می‌سازیم. */
+      if (!importedConfig) {
+        for (const record of importedRecords) {
+          const type = normalizeFinanceType(record.type)
+          const sectionName = getExcelSectionName(record)
+          const section = findOrCreateSection(
+            newConfig,
+            type,
+            sectionName
+          )
 
-            const sectionName =
-              getExcelSectionName(
-                record
-              )
+          const previousSection = previousSections[type].find(
+            (item) =>
+              normalizeName(item?.name) ===
+              normalizeName(sectionName)
+          )
 
-            const section =
-              findOrCreateSection(
-                newConfig,
-                type,
-                sectionName
-              )
-
-            return {
-              original:
-                record,
-
-              type,
-
-              sectionName,
-
-              section,
-            }
+          if (
+            section &&
+            previousSection &&
+            normalizeId(previousSection.id)
+          ) {
+            section.id = normalizeId(previousSection.id)
           }
-        )
+        }
+      }
 
+      const preparedRows = importedRecords.map((record) => {
+        const type = normalizeFinanceType(record.type)
+        const sectionName = getExcelSectionName(record)
+
+        let section = null
+        const importedSectionId = normalizeId(record.sectionId)
+
+        if (importedSectionId) {
+          section = (newConfig[type] || []).find(
+            (item) => normalizeId(item?.id) === importedSectionId
+          ) || null
+        }
+
+        if (!section) {
+          section = (newConfig[type] || []).find(
+            (item) =>
+              normalizeName(item?.name) ===
+              normalizeName(sectionName)
+          ) || null
+        }
+
+        if (!section) {
+          section = findOrCreateSection(
+            newConfig,
+            type,
+            sectionName
+          )
+        }
+
+        return {
+          original: record,
+          type,
+          sectionName,
+          section,
+        }
+      })
 
       /*
         ذخیره Config جدید
       */
+      previousConfig =
+        normalizeFinanceConfig(config)
+
       const configSaved =
         await saveConfig(
           newConfig
@@ -1304,13 +1395,11 @@ export default function FinancialAffairs({
          ذخیره رکوردها
       ===================================================== */
 
-      for (
-        const record of finalRecords
-      ) {
-        await saveFinanceRecord(
-          record
-        )
-      }
+      // این تابع کل رکوردهای قبلی را پاک می‌کند
+      // و فقط رکوردهای Excel جدید را ذخیره می‌کند.
+      await saveFinanceRecords(
+        finalRecords
+      )
 
 
       /* =====================================================
@@ -1318,39 +1407,7 @@ export default function FinancialAffairs({
       ===================================================== */
 
       setRecords(
-        (previous) => {
-          const updated = [
-            ...previous,
-          ]
-
-          for (
-            const record of finalRecords
-          ) {
-            const index =
-              updated.findIndex(
-                (item) =>
-                  normalizeId(
-                    item.id
-                  ) ===
-                  normalizeId(
-                    record.id
-                  )
-              )
-
-            if (
-              index >= 0
-            ) {
-              updated[index] =
-                record
-            } else {
-              updated.push(
-                record
-              )
-            }
-          }
-
-          return updated
-        }
+        finalRecords
       )
 
 
@@ -1387,6 +1444,20 @@ export default function FinancialAffairs({
         )} تراکنش با موفقیت از Excel وارد شد.`
       )
     } catch (error) {
+      // اگر Config تغییر کرده ولی ذخیره رکوردهای جدید شکست خورد،
+      // Config قبلی را هم برمی‌گردانیم تا دو بخش با هم سازگار بمانند.
+      if (previousConfig) {
+        try {
+          await saveFinanceConfig(previousConfig)
+          setConfig(previousConfig)
+        } catch (rollbackError) {
+          console.error(
+            "خطا در بازگردانی تنظیمات مالی:",
+            rollbackError
+          )
+        }
+      }
+
       console.error(
         "خطا در وارد کردن Excel:",
         error
@@ -1803,8 +1874,9 @@ export default function FinancialAffairs({
       return records
         .filter(
           (record) =>
-            normalizeFinanceType(
-              record.type
+            resolveFinanceType(
+              record,
+              config
             ) === "income"
         )
         .reduce(
@@ -1818,7 +1890,7 @@ export default function FinancialAffairs({
             ),
           0
         )
-    }, [records])
+    }, [records, config])
 
 
   const totalExpense =
@@ -1826,8 +1898,9 @@ export default function FinancialAffairs({
       return records
         .filter(
           (record) =>
-            normalizeFinanceType(
-              record.type
+            resolveFinanceType(
+              record,
+              config
             ) === "expense"
         )
         .reduce(
@@ -1841,7 +1914,7 @@ export default function FinancialAffairs({
             ),
           0
         )
-    }, [records])
+    }, [records, config])
 
 
   const profit =
@@ -1947,6 +2020,21 @@ export default function FinancialAffairs({
               <Download size={17} />
 
               قالب Excel
+            </button>
+
+            <button
+              onClick={() =>
+                downloadFinalFinanceExcel(
+                  records,
+                  config
+                )
+              }
+              disabled={records.length === 0 && !config?.income?.length && !config?.expense?.length}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#d4a017]/50 bg-[#d4a017]/10 px-4 py-2.5 text-sm font-bold text-[#f0c040] transition hover:bg-[#d4a017]/20 disabled:cursor-not-allowed disabled:opacity-40"
+              title="دانلود آخرین وضعیت مالی"
+            >
+              <Download size={17} />
+              دانلود اکسل نهایی
             </button>
 
           </div>
@@ -2902,16 +2990,18 @@ function ProfitLossPanel({
   const incomeRecords =
     records.filter(
       (record) =>
-        normalizeFinanceType(
-          record.type
+        resolveFinanceType(
+          record,
+          config
         ) === "income"
     )
 
   const expenseRecords =
     records.filter(
       (record) =>
-        normalizeFinanceType(
-          record.type
+        resolveFinanceType(
+          record,
+          config
         ) === "expense"
     )
 

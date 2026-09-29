@@ -14,6 +14,8 @@ import Login from "./components/Login"
 import {
   getEmployees,
   saveEmployees,
+  getHRConfig,
+  saveHRConfig,
 } from "./services/dataService"
 
 import {
@@ -31,7 +33,7 @@ import {
   LogOut,
 } from "lucide-react"
 
-import { readExcelFile } from "./services/excelService"
+import { readHRExcelPackage } from "./services/excelService"
 import { AUTH_STORAGE_KEY } from "./config/authConfig"
 
 /* =========================================================
@@ -115,6 +117,236 @@ function buildDepartments(employees) {
 }
 
 /* =========================================================
+   Dashboard Source Snapshot
+
+   اطلاعاتی که با Excel وارد داشبورد می‌شوند از اطلاعاتی که
+   در صفحه منابع انسانی تغییر می‌کنند جدا نگهداری می‌شوند.
+
+   نتیجه:
+   - تغییر/حذف فیلد در HR روی داده اصلی داشبورد اثر ندارد.
+   - فقط با ورود Excel جدید snapshot داشبورد عوض می‌شود.
+========================================================= */
+
+const DASHBOARD_SNAPSHOT_KEY = "__dashboardData"
+
+function ensureEmployeeId(employee) {
+  if (!employee || typeof employee !== "object") {
+    return employee
+  }
+
+  const currentId =
+    employee?.id !== undefined &&
+    employee?.id !== null &&
+    employee?.id !== ""
+      ? String(employee.id).trim()
+      : ""
+
+  return {
+    ...employee,
+    id: currentId || crypto.randomUUID(),
+  }
+}
+
+function createDashboardSnapshot(employee) {
+  if (!employee || typeof employee !== "object") {
+    return {}
+  }
+
+  const existingSnapshot =
+    employee[DASHBOARD_SNAPSHOT_KEY]
+
+  /*
+    اطلاعات اصلی داشبورد باید مستقل از تغییرات HR بمانند.
+
+    این موارد متعلق به لایه HR هستند و نباید داخل snapshot
+    داشبورد ذخیره شوند:
+    - department
+    - sub_department
+    - ستون‌های سفارشی HR با کلید custom-...
+    - پرچم‌های داخلی is_*_verified
+    - خود snapshot
+  */
+  const isDashboardKey = (key) => {
+    const normalizedKey = String(key ?? "").trim()
+
+    if (!normalizedKey) {
+      return false
+    }
+
+    if (
+      normalizedKey === DASHBOARD_SNAPSHOT_KEY ||
+      normalizedKey === "department" ||
+      normalizedKey === "sub_department"
+    ) {
+      return false
+    }
+
+    if (normalizedKey.startsWith("custom-")) {
+      return false
+    }
+
+    if (
+      normalizedKey.startsWith("is_") &&
+      normalizedKey.endsWith("_verified")
+    ) {
+      return false
+    }
+
+    return true
+  }
+
+  const buildSnapshot = (source) => {
+    if (
+      !source ||
+      typeof source !== "object" ||
+      Array.isArray(source)
+    ) {
+      return {}
+    }
+
+    return Object.keys(source).reduce(
+      (result, key) => {
+        if (isDashboardKey(key)) {
+          result[key] = source[key]
+        }
+        return result
+      },
+      {}
+    )
+  }
+
+  if (
+    existingSnapshot &&
+    typeof existingSnapshot === "object" &&
+    !Array.isArray(existingSnapshot)
+  ) {
+    return buildSnapshot(existingSnapshot)
+  }
+
+  return buildSnapshot(employee)
+}
+
+function ensureDashboardSnapshot(employee) {
+  const normalizedEmployee =
+    ensureEmployeeId(employee)
+
+  if (
+    !normalizedEmployee ||
+    typeof normalizedEmployee !== "object"
+  ) {
+    return normalizedEmployee
+  }
+
+  return {
+    ...normalizedEmployee,
+    [DASHBOARD_SNAPSHOT_KEY]:
+      createDashboardSnapshot(
+        normalizedEmployee
+      ),
+  }
+}
+
+function getDashboardEmployee(employee) {
+  if (!employee || typeof employee !== "object") {
+    return employee
+  }
+
+  const snapshot =
+    employee[DASHBOARD_SNAPSHOT_KEY]
+
+  if (
+    snapshot &&
+    typeof snapshot === "object" &&
+    !Array.isArray(snapshot)
+  ) {
+    return {
+      ...employee,
+      ...snapshot,
+      [DASHBOARD_SNAPSHOT_KEY]: snapshot,
+    }
+  }
+
+  return employee
+}
+
+function preserveDashboardSnapshots(
+  employees,
+  previousEmployees = []
+) {
+  const previousSnapshots = new Map()
+
+  for (const employee of previousEmployees) {
+    if (!employee || typeof employee !== "object") {
+      continue
+    }
+
+    const id =
+      employee?.id !== undefined &&
+      employee?.id !== null &&
+      employee?.id !== ""
+        ? String(employee.id).trim()
+        : ""
+
+    const snapshot =
+      employee[DASHBOARD_SNAPSHOT_KEY]
+
+    if (
+      id &&
+      snapshot &&
+      typeof snapshot === "object" &&
+      !Array.isArray(snapshot)
+    ) {
+      previousSnapshots.set(
+        id,
+        snapshot
+      )
+    }
+  }
+
+  return employees.map((employee) => {
+    const normalizedEmployee =
+      ensureEmployeeId(employee)
+
+    if (
+      !normalizedEmployee ||
+      typeof normalizedEmployee !== "object"
+    ) {
+      return normalizedEmployee
+    }
+
+    const ownSnapshot =
+      normalizedEmployee[DASHBOARD_SNAPSHOT_KEY]
+
+    if (
+      ownSnapshot &&
+      typeof ownSnapshot === "object" &&
+      !Array.isArray(ownSnapshot)
+    ) {
+      return normalizedEmployee
+    }
+
+    const id = String(
+      normalizedEmployee.id
+    ).trim()
+
+    const previousSnapshot =
+      previousSnapshots.get(id)
+
+    return {
+      ...normalizedEmployee,
+      [DASHBOARD_SNAPSHOT_KEY]:
+        previousSnapshot
+          ? {
+              ...previousSnapshot,
+            }
+          : createDashboardSnapshot(
+              normalizedEmployee
+            ),
+    }
+  })
+}
+
+/* =========================================================
    App
 ========================================================= */
 
@@ -148,6 +380,8 @@ function App() {
 
   const [employees, setEmployees] = useState([])
 
+  const [hrConfigVersion, setHrConfigVersion] = useState(0)
+
   const [fileName, setFileName] = useState("")
 
   const [searchText, setSearchText] = useState("")
@@ -174,9 +408,15 @@ function App() {
      Dynamic Departments
   ======================================================= */
 
-  const departments = useMemo(() => {
-    return buildDepartments(employees)
+  const dashboardSourceEmployees = useMemo(() => {
+    return employees.map(getDashboardEmployee)
   }, [employees])
+
+  const departments = useMemo(() => {
+    return buildDepartments(
+      dashboardSourceEmployees
+    )
+  }, [dashboardSourceEmployees])
 
   /* =======================================================
      Load Saved Data
@@ -194,18 +434,46 @@ function App() {
           return
         }
 
-        const safeEmployees =
+        const rawEmployees =
           Array.isArray(savedEmployees)
             ? savedEmployees
             : []
+
+        const safeEmployees =
+          rawEmployees.map(
+            ensureDashboardSnapshot
+          )
 
         setEmployees(safeEmployees)
 
         setSelectedDepartments(
           buildDepartments(
-            safeEmployees
+            safeEmployees.map(
+              getDashboardEmployee
+            )
           )
         )
+
+        const hadMissingSnapshot =
+          rawEmployees.some(
+            (employee) =>
+              !employee?.[
+                DASHBOARD_SNAPSHOT_KEY
+              ]
+          )
+
+        if (hadMissingSnapshot) {
+          try {
+            await saveEmployees(
+              safeEmployees
+            )
+          } catch (saveError) {
+            console.error(
+              "خطا در ذخیره snapshot داشبورد:",
+              saveError
+            )
+          }
+        }
       } catch (error) {
         console.error(
           "خطا در خواندن اطلاعات ذخیره شده:",
@@ -237,14 +505,22 @@ function App() {
       return
     }
 
+    let previousEmployees = employees
+    let previousHRConfig = null
+
     try {
-      const data =
-        await readExcelFile(file)
+      const packageData =
+        await readHRExcelPackage(file)
+
+      const importedEmployees =
+        Array.isArray(packageData?.employees)
+          ? packageData.employees
+          : []
 
       const safeData =
-        Array.isArray(data)
-          ? data
-          : []
+        importedEmployees.map(
+          ensureDashboardSnapshot
+        )
 
       setEmployees(safeData)
 
@@ -256,14 +532,52 @@ function App() {
 
       setSelectedDepartments(
         buildDepartments(
-          safeData
+          safeData.map(
+            getDashboardEmployee
+          )
         )
       )
 
       await saveEmployees(
         safeData
       )
+
+      // اگر فایل Excel نهایی HR باشد، ساختار سؤال‌ها/ستون‌ها
+      // و واحدها نیز همراه کارکنان بازگردانده می‌شوند.
+      if (packageData?.config) {
+        previousHRConfig = await getHRConfig()
+
+        await saveHRConfig({
+          departments: Array.isArray(packageData.config.departments)
+            ? packageData.config.departments
+            : [],
+          customColumns: Array.isArray(packageData.config.customColumns)
+            ? packageData.config.customColumns
+            : [],
+          hiddenColumns: Array.isArray(packageData.config.hiddenColumns)
+            ? packageData.config.hiddenColumns
+            : [],
+          verifiedCells: {},
+        })
+
+        setHrConfigVersion((value) => value + 1)
+      }
     } catch (error) {
+      try {
+        await saveEmployees(previousEmployees)
+        setEmployees(previousEmployees)
+
+        if (previousHRConfig) {
+          await saveHRConfig(previousHRConfig)
+          setHrConfigVersion((value) => value + 1)
+        }
+      } catch (rollbackError) {
+        console.error(
+          "خطا در بازگردانی اطلاعات HR:",
+          rollbackError
+        )
+      }
+
       alert(
         error.message ||
           "خطا در خواندن فایل Excel"
@@ -287,12 +601,18 @@ function App() {
 
   const handleEmployeesChange =
     async (newEmployees) => {
-      const safeEmployees =
+      const rawEmployees =
         Array.isArray(
           newEmployees
         )
           ? newEmployees
           : []
+
+      const safeEmployees =
+        preserveDashboardSnapshots(
+          rawEmployees,
+          employees
+        )
 
       setEmployees(
         safeEmployees
@@ -302,7 +622,9 @@ function App() {
         (current) => {
           const allDepartments =
             buildDepartments(
-              safeEmployees
+              safeEmployees.map(
+                getDashboardEmployee
+              )
             )
 
           const hadAll =
@@ -409,7 +731,7 @@ function App() {
           searchText
         ).toLowerCase()
 
-      return employees.filter(
+      return dashboardSourceEmployees.filter(
         (employee) => {
           const department =
             String(
@@ -455,7 +777,7 @@ function App() {
         }
       )
     }, [
-      employees,
+      dashboardSourceEmployees,
       searchText,
       selectedDepartments,
     ])
@@ -483,7 +805,7 @@ function App() {
 ======================================================= */
 
   const totalSalary =
-    employees.reduce(
+    dashboardSourceEmployees.reduce(
       (total, employee) => {
         return (
           total +
@@ -500,8 +822,8 @@ function App() {
 ======================================================= */
 
   const averageAge =
-    employees.length > 0
-      ? employees.reduce(
+    dashboardSourceEmployees.length > 0
+      ? dashboardSourceEmployees.reduce(
           (total, employee) => {
             return (
               total +
@@ -511,7 +833,7 @@ function App() {
             )
           },
           0
-        ) / employees.length
+        ) / dashboardSourceEmployees.length
       : 0
 
   /* =======================================================
@@ -1587,6 +1909,7 @@ function App() {
     return (
       <HumanResources
         employees={employees}
+        hrConfigVersion={hrConfigVersion}
         onEmployeesChange={
           handleEmployeesChange
         }

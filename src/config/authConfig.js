@@ -13,8 +13,8 @@
  * =================================================================
  */
 
-export const USERNAME = "admin"
-export const PASSWORD = "admin123"
+export const USERNAME = "ARSIT"
+export const PASSWORD = "As@1375526"
 
 /**
  * کلید ذخیره‌سازی وضعیت ورود در localStorage.
