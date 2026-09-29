@@ -143,7 +143,14 @@ function ensureEmployeeId(employee) {
 
   return {
     ...employee,
-    id: currentId || crypto.randomUUID(),
+    id:
+      currentId ||
+      (
+        typeof crypto !== "undefined" &&
+        typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `employee-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      ),
   }
 }
 
@@ -156,15 +163,14 @@ function createDashboardSnapshot(employee) {
     employee[DASHBOARD_SNAPSHOT_KEY]
 
   /*
-    اطلاعات اصلی داشبورد باید مستقل از تغییرات HR بمانند.
+    اطلاعات واردشده از Excel منبع اصلی داشبورد هستند و باید
+    تا زمان آپلود Excel جدید ثابت بمانند.
 
-    این موارد متعلق به لایه HR هستند و نباید داخل snapshot
-    داشبورد ذخیره شوند:
-    - department
-    - sub_department
+    بنابراین department و sub_department هم جزو Snapshot هستند.
+    داده‌های HR که ماهیت داخلی دارند حذف می‌شوند:
     - ستون‌های سفارشی HR با کلید custom-...
-    - پرچم‌های داخلی is_*_verified
-    - خود snapshot
+    - پرچم‌های is_*_verified
+    - خود Snapshot
   */
   const isDashboardKey = (key) => {
     const normalizedKey = String(key ?? "").trim()
@@ -173,11 +179,7 @@ function createDashboardSnapshot(employee) {
       return false
     }
 
-    if (
-      normalizedKey === DASHBOARD_SNAPSHOT_KEY ||
-      normalizedKey === "department" ||
-      normalizedKey === "sub_department"
-    ) {
+    if (normalizedKey === DASHBOARD_SNAPSHOT_KEY) {
       return false
     }
 
@@ -220,7 +222,43 @@ function createDashboardSnapshot(employee) {
     typeof existingSnapshot === "object" &&
     !Array.isArray(existingSnapshot)
   ) {
-    return buildSnapshot(existingSnapshot)
+    const snapshot = buildSnapshot(existingSnapshot)
+
+    /*
+      سازگاری با Snapshotهای قدیمی:
+      اگر Snapshot قبلی department/sub_department نداشت،
+      مقدار فعلی ذخیره‌شده فقط یک‌بار برای تکمیل Snapshot اضافه می‌شود.
+      بعد از آن تغییرات HR دیگر Snapshot را تغییر نمی‌دهند.
+    */
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        snapshot,
+        "department"
+      ) &&
+      Object.prototype.hasOwnProperty.call(
+        employee,
+        "department"
+      )
+    ) {
+      snapshot.department =
+        employee.department
+    }
+
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        snapshot,
+        "sub_department"
+      ) &&
+      Object.prototype.hasOwnProperty.call(
+        employee,
+        "sub_department"
+      )
+    ) {
+      snapshot.sub_department =
+        employee.sub_department
+    }
+
+    return snapshot
   }
 
   return buildSnapshot(employee)
