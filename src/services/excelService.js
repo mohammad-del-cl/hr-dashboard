@@ -785,11 +785,9 @@ export function downloadEmployeesExcel(
     ? safeConfig.customColumns
     : []
 
-  /*
-    =========================================================
-    Helpers
-    =========================================================
-  */
+  /* =========================================================
+     Helpers
+  ========================================================= */
 
   const isInternalKey = (key) => {
     const normalizedKey =
@@ -839,7 +837,8 @@ export function downloadEmployeesExcel(
     }
 
     /*
-      سازگاری با داده‌های قدیمی بدون Snapshot.
+      سازگاری با رکوردهای قدیمی بدون Snapshot.
+      فیلدهای داخلی و custom-* در Snapshot قرار نمی‌گیرند.
     */
     return Object.keys(employee || {})
       .reduce(
@@ -861,19 +860,24 @@ export function downloadEmployeesExcel(
   const snapshots =
     safeEmployees.map(getSnapshot)
 
-  /*
-    =========================================================
-    لایه اول: اطلاعات اصلی داشبورد
-    =========================================================
-  */
+  /* =========================================================
+     اطلاعات اصلی داشبورد
+
+     این ستون‌ها فقط از Snapshot خوانده می‌شوند.
+     بنابراین تغییرات HR روی آنها اثر نمی‌گذارد.
+  ========================================================= */
 
   const dashboardHeaders = []
   const dashboardHeaderSet = new Set()
 
-  for (const snapshot of snapshots) {
-    for (const key of Object.keys(
-      snapshot || {}
-    )) {
+  for (
+    const snapshot of snapshots
+  ) {
+    for (
+      const key of Object.keys(
+        snapshot || {}
+      )
+    ) {
       if (
         isInternalKey(key) ||
         key.startsWith("custom-")
@@ -890,6 +894,7 @@ export function downloadEmployeesExcel(
     }
   }
 
+  /* حذف ستون‌های کاملاً خالی داشبورد */
   const dashboardHeadersWithValue =
     dashboardHeaders.filter(
       (key) =>
@@ -901,44 +906,15 @@ export function downloadEmployeesExcel(
         )
     )
 
-  /*
-    =========================================================
-    لایه دوم: اطلاعات فعلی HR
-    =========================================================
+  /* =========================================================
+     اطلاعات HR
 
-    این Sheet فقط برای اطلاعاتی است که در HR ممکن است
-    تغییر کنند یا در HR ساخته شده‌اند.
+     نکته مهم:
+     department و sub_department دیگر همیشه تکرار نمی‌شوند.
+     فقط وقتی مقدار HR با مقدار اصلی داشبورد فرق کرده باشد،
+     hr_department یا hr_sub_department ساخته می‌شود.
+  ========================================================= */
 
-    customColumns همیشه در صورت تعریف شدن حفظ می‌شوند،
-    حتی اگر فعلاً خالی باشند.
-  */
-
-  const hrHeaders = [
-    "id",
-    "department",
-    "sub_department",
-  ]
-
-  for (
-    const column of customColumns
-  ) {
-    const key = String(
-      column?.key ?? ""
-    ).trim()
-
-    if (
-      key &&
-      !isInternalKey(key) &&
-      !hrHeaders.includes(key)
-    ) {
-      hrHeaders.push(key)
-    }
-  }
-
-  /*
-    هر فیلدی که مقدار فعلی HR آن با Snapshot فرق کرده باشد،
-    با نام hr_<key> در Sheet hr_data ذخیره می‌شود.
-  */
   const changedHrHeaders = []
 
   for (
@@ -968,7 +944,7 @@ export function downloadEmployeesExcel(
       const currentValue =
         employee?.[key]
 
-      const snapshotValue =
+      const originalValue =
         snapshot?.[key]
 
       if (
@@ -976,7 +952,7 @@ export function downloadEmployeesExcel(
           currentValue ?? ""
         ).trim() !==
         String(
-          snapshotValue ?? ""
+          originalValue ?? ""
         ).trim()
       ) {
         const hrKey =
@@ -995,16 +971,54 @@ export function downloadEmployeesExcel(
     }
   }
 
-  const finalHrHeaders = [
-    ...hrHeaders,
+  /*
+    ستون‌های سفارشی HR فقط در صورت داشتن مقدار واقعی
+    وارد فایل می‌شوند تا ستون خالی و بی‌مصرف ساخته نشود.
+  */
+  const activeCustomHeaders =
+    customColumns
+      .map(
+        (column) =>
+          String(
+            column?.key ?? ""
+          ).trim()
+      )
+      .filter(Boolean)
+      .filter(
+        (key) =>
+          !isInternalKey(key) &&
+          !key.startsWith("hr_")
+      )
+      .filter(
+        (key) =>
+          safeEmployees.some(
+            (employee) =>
+              !isBlank(
+                employee?.[key]
+              )
+          )
+      )
+
+  const hrHeaders = [
+    ...activeCustomHeaders,
     ...changedHrHeaders,
   ]
 
-  /*
-    =========================================================
-    Sheet employees
-    =========================================================
-  */
+  /* =========================================================
+     یک Sheet مشترک
+
+     ترتیب:
+     اطلاعات اصلی داشبورد
+     + اطلاعات HR جدید/تغییریافته
+  ========================================================= */
+
+  const exportHeaders = [
+    ...dashboardHeadersWithValue,
+    ...hrHeaders,
+  ].filter(
+    (key, index, array) =>
+      array.indexOf(key) === index
+  )
 
   const employeeRows =
     safeEmployees.map(
@@ -1015,121 +1029,57 @@ export function downloadEmployeesExcel(
         const row = {}
 
         for (
-          const key of
-          dashboardHeadersWithValue
+          const key of exportHeaders
         ) {
-          row[key] =
-            snapshot?.[key] ??
-            ""
-        }
-
-        return row
-      }
-    )
-
-  /*
-    =========================================================
-    Sheet hr_data
-    =========================================================
-  */
-
-  const hrRows =
-    safeEmployees.map(
-      (employee, index) => {
-        const snapshot =
-          snapshots[index] || {}
-
-        const row = {
-          id:
-            employee?.id ??
-            "",
-        }
-
-        for (
-          const key of [
-            "department",
-            "sub_department",
-          ]
-        ) {
-          row[key] =
-            employee?.[key] ??
-            ""
-        }
-
-        for (
-          const column of customColumns
-        ) {
-          const key = String(
-            column?.key ?? ""
-          ).trim()
-
           if (
-            !key ||
-            !finalHrHeaders.includes(
+            dashboardHeadersWithValue.includes(
               key
             )
           ) {
+            /*
+              داده اصلی داشبورد:
+              همیشه از Snapshot.
+            */
+            row[key] =
+              snapshot?.[key] ??
+              ""
+
             continue
           }
 
+          if (
+            key.startsWith("hr_")
+          ) {
+            const originalKey =
+              key.slice(3)
+
+            /*
+              داده تغییرکرده HR:
+              اگر خالی شده باشد نیز باید خالی صادر شود.
+            */
+            row[key] =
+              employee?.[
+                originalKey
+              ] ??
+              ""
+
+            continue
+          }
+
+          /* اطلاعات سفارشی HR */
           row[key] =
             employee?.[key] ??
             ""
         }
 
-        for (
-          const hrKey of changedHrHeaders
-        ) {
-          const originalKey =
-            hrKey.slice(3)
-
-          const currentValue =
-            employee?.[
-              originalKey
-            ]
-
-          row[hrKey] =
-            currentValue ??
-            ""
-        }
-
-        /*
-          اگر برای این فرد هیچ داده HR وجود نداشت،
-          شناسه همچنان نگه داشته می‌شود تا تطبیق رکوردها
-          در Import مجدد پایدار بماند.
-        */
-        void snapshot
-
         return row
       }
     )
 
-  /*
-    =========================================================
-    Sheet dashboard_data
-    =========================================================
-  */
-
-  const dashboardRows =
-    safeEmployees.map(
-      (employee, index) => ({
-        id:
-          String(
-            employee?.id ??
-            `__row_${index}`
-          ),
-        data:
-          JSON.stringify(
-            snapshots[index] || {}
-          ),
-      })
-    )
-
-  /*
-    =========================================================
-    Workbook
-    =========================================================
-  */
+  /* =========================================================
+     Workbook
+     فقط یک Sheet به نام employees
+  ========================================================= */
 
   const workbook =
     XLSX.utils.book_new()
@@ -1138,182 +1088,29 @@ export function downloadEmployeesExcel(
     XLSX.utils.json_to_sheet(
       employeeRows,
       {
-        header:
-          dashboardHeadersWithValue,
+        header: exportHeaders,
       }
+    )
+
+  employeeSheet["!cols"] =
+    exportHeaders.map(
+      (header) => ({
+        wch: Math.min(
+          Math.max(
+            String(
+              header ?? ""
+            ).length + 3,
+            12
+          ),
+          35
+        ),
+      })
     )
 
   XLSX.utils.book_append_sheet(
     workbook,
     employeeSheet,
     "employees"
-  )
-
-  const hrSheet =
-    XLSX.utils.json_to_sheet(
-      hrRows,
-      {
-        header:
-          finalHrHeaders,
-      }
-    )
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    hrSheet,
-    "hr_data"
-  )
-
-  const dashboardSheet =
-    XLSX.utils.json_to_sheet(
-      dashboardRows,
-      {
-        header: [
-          "id",
-          "data",
-        ],
-      }
-    )
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    dashboardSheet,
-    "dashboard_data"
-  )
-
-  /*
-    =========================================================
-    تنظیمات HR
-    =========================================================
-  */
-
-  const hiddenColumns = Array.isArray(
-    safeConfig.hiddenColumns
-  )
-    ? safeConfig.hiddenColumns.map(String)
-    : []
-
-  const configRows = [
-    {
-      key: "departments",
-      value: JSON.stringify(
-        Array.isArray(
-          safeConfig.departments
-        )
-          ? safeConfig.departments
-          : []
-      ),
-    },
-    {
-      key: "customColumns",
-      value: JSON.stringify(
-        customColumns
-      ),
-    },
-    {
-      key: "hiddenColumns",
-      value: JSON.stringify(
-        hiddenColumns
-      ),
-    },
-  ]
-
-  const configSheet =
-    XLSX.utils.json_to_sheet(
-      configRows,
-      {
-        header: [
-          "key",
-          "value",
-        ],
-      }
-    )
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    configSheet,
-    "hr_config"
-  )
-
-  /*
-    =========================================================
-    واحدها و زیرواحدها
-    =========================================================
-  */
-
-  const departmentRows = []
-  const departments =
-    Array.isArray(
-      safeConfig.departments
-    )
-      ? safeConfig.departments
-      : []
-
-  for (
-    const department
-    of departments
-  ) {
-    const children =
-      Array.isArray(
-        department?.children
-      )
-        ? department.children
-        : []
-
-    if (!children.length) {
-      departmentRows.push({
-        departmentId:
-          department?.id ??
-          "",
-        departmentName:
-          department?.name ??
-          "",
-        subDepartmentId:
-          "",
-        subDepartmentName:
-          "",
-      })
-
-      continue
-    }
-
-    for (
-      const child of children
-    ) {
-      departmentRows.push({
-        departmentId:
-          department?.id ??
-          "",
-        departmentName:
-          department?.name ??
-          "",
-        subDepartmentId:
-          child?.id ??
-          "",
-        subDepartmentName:
-          child?.name ??
-          "",
-      })
-    }
-  }
-
-  const departmentSheet =
-    XLSX.utils.json_to_sheet(
-      departmentRows,
-      {
-        header: [
-          "departmentId",
-          "departmentName",
-          "subDepartmentId",
-          "subDepartmentName",
-        ],
-      }
-    )
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    departmentSheet,
-    "departments"
   )
 
   const date =
@@ -1362,6 +1159,139 @@ export function readHRExcelPackage(file) {
               defval: "",
             }
           )
+
+
+        /*
+          =====================================================
+          فرمت جدید خروجی نهایی HR: فقط یک Sheet به نام employees
+          =====================================================
+
+          ساختار این فایل:
+          - ستون‌های عادی = Snapshot اصلی داشبورد
+          - ستون‌های hr_* = مقدار فعلی HR فقط در صورت تفاوت
+          - ستون‌های custom-* = اطلاعات سفارشی HR
+
+          در نتیجه می‌توان فایل نهایی را دوباره Import کرد و
+          Snapshot داشبورد را بدون از دست رفتن بازیابی کرد.
+        */
+        const hasSeparateDashboardSheet =
+          Boolean(
+            workbook.Sheets["dashboard_data"]
+          )
+
+        const hasSeparateHrSheet =
+          Boolean(
+            workbook.Sheets["hr_data"]
+          )
+
+        if (
+          !hasSeparateDashboardSheet &&
+          !hasSeparateHrSheet
+        ) {
+          const employees =
+            rawEmployees.map(
+              (employee, index) => {
+                const row =
+                  employee || {}
+
+                const rowId =
+                  String(
+                    row?.id ??
+                    ""
+                  ).trim()
+
+                const id =
+                  rowId ||
+                  (
+                    typeof crypto !==
+                      "undefined" &&
+                    typeof crypto.randomUUID ===
+                      "function"
+                      ? crypto.randomUUID()
+                      : `employee-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 10)}`
+                  )
+
+                const snapshot =
+                  Object.keys(row)
+                    .reduce(
+                      (result, key) => {
+                        if (
+                          key ===
+                          DASHBOARD_SNAPSHOT_KEY
+                        ) {
+                          return result
+                        }
+
+                        if (
+                          key.startsWith("hr_")
+                        ) {
+                          return result
+                        }
+
+                        if (
+                          key.startsWith("is_") &&
+                          key.endsWith("_verified")
+                        ) {
+                          return result
+                        }
+
+                        if (
+                          key.startsWith("custom-")
+                        ) {
+                          return result
+                        }
+
+                        result[key] =
+                          row[key]
+
+                        return result
+                      },
+                      {}
+                    )
+
+                const currentEmployee = {
+                  ...row,
+                  id,
+                }
+
+                for (
+                  const key of Object.keys(row)
+                ) {
+                  if (
+                    !key.startsWith("hr_")
+                  ) {
+                    continue
+                  }
+
+                  const originalKey =
+                    key.slice(3)
+
+                  if (!originalKey) {
+                    continue
+                  }
+
+                  currentEmployee[
+                    originalKey
+                  ] =
+                    row[key]
+                }
+
+                return {
+                  ...currentEmployee,
+                  id,
+                  [DASHBOARD_SNAPSHOT_KEY]:
+                    snapshot,
+                }
+              }
+            )
+
+          resolve({
+            employees,
+            config: null,
+          })
+
+          return
+        }
 
         /*
           =====================================================
@@ -1955,6 +1885,11 @@ export function readFinanceExcelPackage(file) {
     reader.readAsArrayBuffer(file)
   })
 }
+
+
+
+
+
 
 
 
