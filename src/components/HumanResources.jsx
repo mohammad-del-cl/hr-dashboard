@@ -19,6 +19,7 @@ import {
   Users,
   X,
   Download,
+  Pencil,
 } from "lucide-react"
 
 import {
@@ -133,6 +134,48 @@ const DEFAULT_COLUMNS = [
     key: "salary",
     label: "حقوق",
   },
+]
+
+/* =========================================================
+   Dashboard fields (سوال‌های ثابت)
+
+   این فیلدها مستقیم در آمار داشبورد استفاده می‌شوند.
+   مقدارهای گزینه‌ها باید دقیقاً با شرط‌های App.jsx یکی باشند.
+========================================================= */
+
+// کلید snapshot داشبورد (همان مقدار App.jsx و excelService.js)
+const DASHBOARD_SNAPSHOT_KEY = "__dashboardData"
+
+const DASHBOARD_FIELDS = [
+  {
+    key: "gender",
+    label: "جنسیت",
+    type: "select",
+    options: ["مرد", "زن"],
+  },
+  { key: "age", label: "سن", type: "number" },
+  {
+    key: "marital_status",
+    label: "وضعیت تأهل",
+    type: "select",
+    options: ["مجرد", "متأهل"],
+  },
+  { key: "degree", label: "مدرک تحصیلی", type: "text" },
+  { key: "job_title", label: "عنوان شغلی", type: "text" },
+  { key: "experience_years", label: "سابقه خدمت (سال)", type: "number" },
+  {
+    key: "contract_type",
+    label: "نوع قرارداد",
+    type: "select",
+    options: ["رسمی", "آزمایشی", "پیمانکاری", "قراردادی"],
+  },
+  {
+    key: "has_insurance",
+    label: "بیمه",
+    type: "select",
+    options: ["بله", "خیر"],
+  },
+  { key: "salary", label: "حقوق (تومان)", type: "number" },
 ]
 
 /* =========================================================
@@ -385,6 +428,17 @@ function HumanResources({
     newEmployeeSubPath,
     setNewEmployeeSubPath,
   ] = useState("")
+
+  // ویرایش کارمند: اگر مقدار داشته باشد، مودال فرم در حالت ویرایش است
+  const [
+    editingEmployeeId,
+    setEditingEmployeeId,
+  ] = useState(null)
+
+  const [
+    applyEditToDashboard,
+    setApplyEditToDashboard,
+  ] = useState(false)
 
   /* =========================================================
      Load HR config
@@ -1174,11 +1228,48 @@ function HumanResources({
       departments[0] ||
       null
 
+    setEditingEmployeeId(null)
+    setApplyEditToDashboard(false)
     setNewEmployeeForm({})
     setNewEmployeeDepartmentId(
       fallbackDepartment?.id || ""
     )
     setNewEmployeeSubPath(subPath || "")
+    setShowAddEmployee(true)
+  }
+
+  // باز کردن فرم در حالت ویرایش با اطلاعات فعلی کارمند
+  const openEditEmployee = (employeeId) => {
+    const target = employees.find(
+      (item) => getEmployeeId(item) === String(employeeId)
+    )
+
+    if (!target) {
+      return
+    }
+
+    const department = departments.find(
+      (item) =>
+        normalizeText(item.name) ===
+        normalizeText(target.department)
+    )
+
+    const form = { name: target.name ?? "" }
+
+    for (const field of [
+      ...DASHBOARD_FIELDS,
+      ...columns.filter((column) => column.custom),
+    ]) {
+      form[field.key] = target[field.key] ?? ""
+    }
+
+    setEditingEmployeeId(String(employeeId))
+    setApplyEditToDashboard(false)
+    setNewEmployeeForm(form)
+    setNewEmployeeDepartmentId(department?.id || "")
+    setNewEmployeeSubPath(
+      joinSubPath(splitSubPath(target.sub_department))
+    )
     setShowAddEmployee(true)
   }
 
@@ -1212,23 +1303,58 @@ function HumanResources({
       return
     }
 
-    const newEmployee = {
-      id: crypto.randomUUID(),
-      name,
-      department: department.name,
-      sub_department: newEmployeeSubPath || "",
+    const isEditing = Boolean(editingEmployeeId)
+
+    const baseEmployee = isEditing
+      ? employees.find(
+          (item) =>
+            getEmployeeId(item) === editingEmployeeId
+        )
+      : null
+
+    if (isEditing && !baseEmployee) {
+      alert("کارمند پیدا نشد.")
+      return
     }
 
-    for (const column of columns) {
+    const newEmployee = isEditing
+      ? {
+          ...baseEmployee,
+          name,
+          department: department.name,
+          sub_department: newEmployeeSubPath || "",
+        }
+      : {
+          id: crypto.randomUUID(),
+          name,
+          department: department.name,
+          sub_department: newEmployeeSubPath || "",
+        }
+
+    // سوال‌های ثابت داشبورد + سوال‌های سفارشی منابع انسانی
+    const questionFields = [
+      ...DASHBOARD_FIELDS,
+      ...columns.filter((column) => column.custom),
+    ]
+
+    for (const column of questionFields) {
       const raw = String(
         newEmployeeForm[column.key] ?? ""
       ).trim()
 
       if (raw === "") {
+        if (isEditing) {
+          delete newEmployee[column.key]
+        }
+
         continue
       }
 
-      if (column.key === "salary" || column.key === "age") {
+      if (
+        column.type === "number" ||
+        column.key === "salary" ||
+        column.key === "age"
+      ) {
         const numeric = Number(
           raw
             .replace(/[۰-۹]/g, (digit) =>
@@ -1242,6 +1368,56 @@ function HumanResources({
       } else {
         newEmployee[column.key] = raw
       }
+    }
+
+    if (isEditing) {
+      /*
+        به‌صورت پیش‌فرض ویرایش فقط اطلاعات صفحه منابع انسانی را
+        عوض می‌کند و snapshot داشبورد دست‌نخورده می‌ماند.
+        اگر کاربر گزینه «اعمال روی داشبورد» را بزند، snapshot هم
+        با مقدارهای جدید به‌روز می‌شود.
+      */
+      if (applyEditToDashboard) {
+        const snapshot = {
+          ...(baseEmployee[DASHBOARD_SNAPSHOT_KEY] || {}),
+        }
+
+        for (const key of [
+          "name",
+          "department",
+          "sub_department",
+          ...DASHBOARD_FIELDS.map((field) => field.key),
+        ]) {
+          const value = newEmployee[key]
+
+          if (
+            value === undefined ||
+            value === null ||
+            value === ""
+          ) {
+            delete snapshot[key]
+          } else {
+            snapshot[key] = value
+          }
+        }
+
+        newEmployee[DASHBOARD_SNAPSHOT_KEY] = snapshot
+      }
+
+      if (onEmployeesChange) {
+        await onEmployeesChange(
+          employees.map((item) =>
+            getEmployeeId(item) === editingEmployeeId
+              ? newEmployee
+              : item
+          )
+        )
+      }
+
+      setShowAddEmployee(false)
+      setEditingEmployeeId(null)
+      setNewEmployeeForm({})
+      return
     }
 
     if (onEmployeesChange) {
@@ -1284,6 +1460,36 @@ function HumanResources({
 
     setShowAddEmployee(false)
     setNewEmployeeForm({})
+  }
+
+  /* =========================================================
+     Delete employee
+  ========================================================= */
+
+  const handleDeleteEmployee = async (employeeId) => {
+    const target = employees.find(
+      (item) => getEmployeeId(item) === String(employeeId)
+    )
+
+    if (!target) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `کارمند «${target.name || "بدون نام"}» حذف شود؟\nاین کار قابل بازگشت نیست.`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    if (onEmployeesChange) {
+      await onEmployeesChange(
+        employees.filter(
+          (item) => getEmployeeId(item) !== String(employeeId)
+        )
+      )
+    }
   }
 
   /* =========================================================
@@ -1998,6 +2204,10 @@ function HumanResources({
                         )
                       )}
 
+                      <th className="px-4 py-3 text-right text-xs font-bold text-gray-400">
+                        عملیات
+                      </th>
+
                     </tr>
                   </thead>
 
@@ -2032,6 +2242,12 @@ function HumanResources({
                             }
                             onToggleVerification={
                               toggleVerification
+                            }
+                            onDelete={
+                              handleDeleteEmployee
+                            }
+                            onEdit={
+                              openEditEmployee
                             }
                           />
                         )
@@ -2189,7 +2405,11 @@ function HumanResources({
 
       {showAddEmployee && (
         <Modal
-          title="افزودن کارمند جدید"
+          title={
+            editingEmployeeId
+              ? "ویرایش اطلاعات کارمند"
+              : "افزودن کارمند جدید"
+          }
           onClose={() =>
             setShowAddEmployee(false)
           }
@@ -2292,32 +2512,129 @@ function HumanResources({
               </select>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {columns.map((column) => (
-                <div key={column.key}>
-                  <label className="mb-1 block text-xs text-gray-400">
-                    {column.label}
-                  </label>
+            {/* دسته اول: سوال‌های ثابت داشبورد */}
 
-                  <input
-                    value={
-                      newEmployeeForm[column.key] ?? ""
-                    }
-                    onChange={(event) =>
-                      setNewEmployeeForm(
-                        (current) => ({
-                          ...current,
-                          [column.key]:
-                            event.target.value,
-                        })
-                      )
-                    }
-                    placeholder="اختیاری"
-                    className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm outline-none placeholder:text-gray-700 focus:border-[#d4a017]"
-                  />
-                </div>
-              ))}
+            <div className="rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/5 p-3">
+              <p className="mb-1 text-sm font-bold text-[#f0c040]">
+                اطلاعات ثابت (مورد نیاز داشبورد)
+              </p>
+
+              <p className="mb-3 text-[11px] leading-5 text-gray-500">
+                این اطلاعات در آمار و نمودارهای داشبورد استفاده می‌شوند.
+              </p>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {DASHBOARD_FIELDS.map((field) => (
+                  <div key={field.key}>
+                    <label className="mb-1 block text-xs text-gray-400">
+                      {field.label}
+                    </label>
+
+                    {field.type === "select" ? (
+                      <select
+                        value={newEmployeeForm[field.key] ?? ""}
+                        onChange={(event) =>
+                          setNewEmployeeForm((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm text-white outline-none focus:border-[#d4a017]"
+                      >
+                        <option value="" className="bg-[#181818]">
+                          انتخاب کنید
+                        </option>
+
+                        {field.options.map((option) => (
+                          <option
+                            key={option}
+                            value={option}
+                            className="bg-[#181818]"
+                          >
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        value={newEmployeeForm[field.key] ?? ""}
+                        onChange={(event) =>
+                          setNewEmployeeForm((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        placeholder="اختیاری"
+                        className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm outline-none placeholder:text-gray-700 focus:border-[#d4a017]"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* دسته دوم: سوال‌های منابع انسانی (ستون‌های سفارشی) */}
+
+            <div className="rounded-xl border border-white/10 bg-[#181818] p-3">
+              <p className="mb-1 text-sm font-bold text-white">
+                اطلاعات منابع انسانی
+              </p>
+
+              <p className="mb-3 text-[11px] leading-5 text-gray-500">
+                ستون‌هایی که خودت در بخش منابع انسانی اضافه کرده‌ای.
+              </p>
+
+              {columns.filter((column) => column.custom).length === 0 ? (
+                <p className="text-xs text-gray-600">
+                  هنوز ستون سفارشی‌ای تعریف نشده است. با دکمه «ستون جدید»
+                  می‌توانی سوال جدید اضافه کنی.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {columns
+                    .filter((column) => column.custom)
+                    .map((column) => (
+                      <div key={column.key}>
+                        <label className="mb-1 block text-xs text-gray-400">
+                          {column.label}
+                        </label>
+
+                        <input
+                          value={newEmployeeForm[column.key] ?? ""}
+                          onChange={(event) =>
+                            setNewEmployeeForm((current) => ({
+                              ...current,
+                              [column.key]: event.target.value,
+                            }))
+                          }
+                          placeholder="اختیاری"
+                          className="w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-2.5 text-sm outline-none placeholder:text-gray-700 focus:border-[#d4a017]"
+                        />
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {editingEmployeeId && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/10 bg-[#181818] p-3 text-xs leading-5 text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={applyEditToDashboard}
+                  onChange={(event) =>
+                    setApplyEditToDashboard(
+                      event.target.checked
+                    )
+                  }
+                  className="mt-1 accent-[#d4a017]"
+                />
+                <span>
+                  تغییرات اطلاعات ثابت روی آمار داشبورد هم اعمال شود
+                  (در حالت عادی فقط در صفحه منابع انسانی تغییر می‌کند)
+                </span>
+              </label>
+            )}
 
           </div>
 
@@ -2336,7 +2653,9 @@ function HumanResources({
               onClick={handleAddEmployee}
               className="rounded-xl bg-[#d4a017] px-5 py-2.5 text-sm font-bold text-black hover:bg-[#f0c040]"
             >
-              افزودن کارمند
+              {editingEmployeeId
+                ? "ذخیره تغییرات"
+                : "افزودن کارمند"}
             </button>
 
           </div>
@@ -2426,6 +2745,8 @@ function EmployeeRow({
   onUpdateField,
   onUpdateDepartment,
   onToggleVerification,
+  onDelete,
+  onEdit,
 }) {
   const employeeDepartment =
     String(
@@ -2672,6 +2993,28 @@ function EmployeeRow({
           )
         }
       )}
+
+      {/* Delete employee */}
+
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onEdit(employeeId)}
+            title="ویرایش کارمند"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition hover:bg-[#d4a017]/10 hover:text-[#f0c040]"
+          >
+            <Pencil size={15} />
+          </button>
+
+          <button
+            onClick={() => onDelete(employeeId)}
+            title="حذف کارمند"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-500/10 hover:text-red-400"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </td>
 
     </tr>
   )

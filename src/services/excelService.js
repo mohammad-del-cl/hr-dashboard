@@ -7,6 +7,28 @@ const DASHBOARD_SNAPSHOT_KEY = "__dashboardData"
 ========================================================= */
 
 /*
+  مسیر واحد در یک ستون: «واحد / زیرواحد / زیرزیرواحد»
+*/
+const UNIT_SEPARATOR = " / "
+
+function splitUnit(value) {
+  return String(value ?? "")
+    .replace(/\u200c/g, " ")
+    .split(/[\/\\>»]/)
+    .map((part) => part.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+}
+
+function unitPathOf(source) {
+  return [
+    String(source?.department ?? "").trim(),
+    ...splitUnit(source?.sub_department),
+  ]
+    .filter(Boolean)
+    .join(UNIT_SEPARATOR)
+}
+
+/*
   تبدیل اعداد فارسی و عربی به انگلیسی
 */
 function normalizeDigits(value) {
@@ -785,6 +807,7 @@ export function downloadEmployeesExcel(
   const dashboardHeadersWithValue =
     dashboardHeaders.filter(
       (key) =>
+        key !== "sub_department" &&
         snapshots.some(
           (snapshot) =>
             !isBlank(
@@ -799,7 +822,7 @@ export function downloadEmployeesExcel(
      نکته مهم:
      department و sub_department دیگر همیشه تکرار نمی‌شوند.
      فقط وقتی مقدار HR با مقدار اصلی داشبورد فرق کرده باشد،
-     hr_department یا hr_sub_department ساخته می‌شود.
+     ستون department شامل مسیر کامل «واحد / زیرواحد» است و ستون جدا ساخته نمی‌شود.
   ========================================================= */
 
   const changedHrHeaders = []
@@ -823,6 +846,8 @@ export function downloadEmployeesExcel(
       if (
         isInternalKey(key) ||
         key === "id" ||
+        key === "sub_department" ||
+        key === "department" ||
         key.startsWith("custom-")
       ) {
         continue
@@ -928,8 +953,10 @@ export function downloadEmployeesExcel(
               همیشه از Snapshot.
             */
             row[key] =
-              snapshot?.[key] ??
-              ""
+              key === "department"
+                ? unitPathOf(employee)
+                : snapshot?.[key] ??
+                  ""
 
             continue
           }
@@ -945,10 +972,12 @@ export function downloadEmployeesExcel(
               اگر خالی شده باشد نیز باید خالی صادر شود.
             */
             row[key] =
-              employee?.[
-                originalKey
-              ] ??
-              ""
+              originalKey === "department"
+                ? unitPathOf(employee)
+                : employee?.[
+                    originalKey
+                  ] ??
+                  ""
 
             continue
           }
@@ -1136,9 +1165,49 @@ export function readHRExcelPackage(file) {
                       {}
                     )
 
+                /*
+                  ستون department می‌تواند مسیر کامل باشد:
+                  «واحد / زیرواحد / ...». برای سازگاری با فایل‌های
+                  قدیمی (دو ستون جدا) اگر جداکننده نبود، دست نمی‌خورد.
+                */
+                const unitParts =
+                  splitUnit(
+                    snapshot.department
+                  )
+
+                if (
+                  unitParts.length > 1 &&
+                  !String(
+                    snapshot.sub_department ??
+                      ""
+                  ).trim()
+                ) {
+                  snapshot.department =
+                    unitParts[0]
+
+                  snapshot.sub_department =
+                    unitParts
+                      .slice(1)
+                      .join(
+                        UNIT_SEPARATOR
+                      )
+                }
+
                 const currentEmployee = {
                   ...row,
+                  department:
+                    snapshot.department,
                   id,
+                }
+
+                if (
+                  Object.prototype.hasOwnProperty.call(
+                    snapshot,
+                    "sub_department"
+                  )
+                ) {
+                  currentEmployee.sub_department =
+                    snapshot.sub_department
                 }
 
                 for (
@@ -1157,10 +1226,30 @@ export function readHRExcelPackage(file) {
                     continue
                   }
 
-                  currentEmployee[
-                    originalKey
-                  ] =
-                    row[key]
+                  if (
+                    originalKey ===
+                    "department"
+                  ) {
+                    const hrParts =
+                      splitUnit(row[key])
+
+                    currentEmployee.department =
+                      hrParts[0] || ""
+
+                    currentEmployee.sub_department =
+                      hrParts
+                        .slice(1)
+                        .join(
+                          UNIT_SEPARATOR
+                        )
+                  } else {
+                    currentEmployee[
+                      originalKey
+                    ] =
+                      row[key]
+                  }
+
+                  delete currentEmployee[key]
                 }
 
                 return {
@@ -1855,24 +1944,8 @@ export function downloadFinalFinanceExcel(
       category: record?.category ?? "",
       status: record?.status ?? "تسویه شده",
       note: record?.note ?? "",
-      sectionId: record?.sectionId ?? "",
     }
   })
-
-  const configRows = [
-    ...incomeSections.map((item) => ({
-      type: "income",
-      id: item?.id ?? "",
-      name: item?.name ?? "",
-      parentId: item?.parentId ?? "",
-    })),
-    ...expenseSections.map((item) => ({
-      type: "expense",
-      id: item?.id ?? "",
-      name: item?.name ?? "",
-      parentId: item?.parentId ?? "",
-    })),
-  ]
 
   const workbook = XLSX.utils.book_new()
 
@@ -1887,21 +1960,10 @@ export function downloadFinalFinanceExcel(
       "category",
       "status",
       "note",
-      "sectionId",
     ],
   })
 
   XLSX.utils.book_append_sheet(workbook, financeSheet, "finance")
-
-  const configSheet = XLSX.utils.json_to_sheet(configRows, {
-    header: ["type", "id", "name", "parentId"],
-  })
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    configSheet,
-    "finance_config"
-  )
 
   const date = new Date().toISOString().slice(0, 10)
 
