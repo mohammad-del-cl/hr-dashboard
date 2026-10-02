@@ -1,7 +1,7 @@
 import { openDB } from "idb"
 
 const DB_NAME = "hr-dashboard-db"
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const EMPLOYEES_STORE = "employees"
 const HR_CONFIG_STORE = "hrConfig"

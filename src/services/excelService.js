@@ -592,174 +592,61 @@ export function readFinanceExcelFile(
 ========================================================= */
 
 export function downloadFinanceExcelTemplate() {
+  /*
+    ستون‌ها: id, date, type, section, description, amount,
+             category, status, note
+
+    - date: به شکل 2026-09-20 (یا سلول تاریخ Excel)
+    - type: income یا expense
+    - section: بخش یا مسیر زیربخش با جداکننده‌ی «/»
+      مثال: درآمد غذاخوری / رستوران / ناهار
+  */
   const rows = [
-
-    {
-      id: "FIN-001",
-      date: "2026-09-20",
-      type: "income",
-      section: "درآمد غذاخوری",
-      description:
-        "فروش روزانه غذا",
-      amount: 15000000,
-      category: "فروش",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-002",
-      date: "2026-09-20",
-      type: "income",
-      section: "درآمد غذاخوری",
-      description:
-        "فروش نوشیدنی",
-      amount: 4500000,
-      category: "فروش",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-003",
-      date: "2026-09-20",
-      type: "income",
-      section: "درآمد استخر",
-      description:
-        "فروش بلیت استخر",
-      amount: 8000000,
-      category: "بلیت",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-004",
-      date: "2026-09-21",
-      type: "income",
-      section: "درآمد استخر",
-      description:
-        "فروش اشتراک",
-      amount: 12000000,
-      category: "اشتراک",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-005",
-      date: "2026-09-20",
-      type: "expense",
-      section: "هزینه غذاخوری",
-      description:
-        "خرید مواد اولیه",
-      amount: 3000000,
-      category: "خرید",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-006",
-      date: "2026-09-21",
-      type: "expense",
-      section: "هزینه غذاخوری",
-      description:
-        "خرید نوشیدنی",
-      amount: 1800000,
-      category: "خرید",
-      status:
-        "در انتظار",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-007",
-      date: "2026-09-20",
-      type: "expense",
-      section: "هزینه استخر",
-      description:
-        "تعمیر تجهیزات",
-      amount: 5500000,
-      category: "تعمیرات",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-008",
-      date: "2026-09-21",
-      type: "expense",
-      section: "هزینه استخر",
-      description:
-        "خرید مواد بهداشتی",
-      amount: 2100000,
-      category:
-        "مواد مصرفی",
-      status:
-        "تسویه شده",
-      note: "نمونه",
-    },
-
-    {
-      id: "FIN-009",
-      date: "2026-09-21",
-      type: "income",
-      section: "درآمد غذاخوری",
-      description:
-        "فروش ناهار",
-      amount: 6700000,
-      category: "فروش",
-      status:
-        "تسویه شده",
-      note: "",
-    },
-
-    {
-      id: "FIN-010",
-      date: "2026-09-21",
-      type: "expense",
-      section: "هزینه غذاخوری",
-      description:
-        "هزینه حمل مواد اولیه",
-      amount: 750000,
-      category:
-        "حمل و نقل",
-      status:
-        "تسویه شده",
-      note: "",
-    },
-
+    ["FIN-001", "2026-09-20", "income", "درآمد غذاخوری / رستوران / ناهار", "فروش ناهار", 15000000, "فروش", "تسویه شده", "نمونه"],
+    ["FIN-002", "2026-09-20", "income", "درآمد غذاخوری / رستوران / شام", "فروش شام", 12000000, "فروش", "تسویه شده", "نمونه"],
+    ["FIN-003", "2026-09-20", "income", "درآمد غذاخوری / کافه", "فروش نوشیدنی", 4500000, "فروش", "تسویه شده", "نمونه"],
+    ["FIN-004", "2026-09-20", "income", "درآمد استخر / بلیت", "فروش بلیت استخر", 8000000, "بلیت", "تسویه شده", "نمونه"],
+    ["FIN-005", "2026-09-21", "income", "درآمد استخر / اشتراک", "فروش اشتراک ماهانه", 12000000, "اشتراک", "تسویه شده", "نمونه"],
+    ["FIN-006", "2026-09-21", "income", "درآمد غذاخوری", "درآمد متفرقه", 700000, "متفرقه", "تسویه شده", ""],
+    ["FIN-007", "2026-09-20", "expense", "هزینه غذاخوری / مواد اولیه", "خرید مواد اولیه", 3000000, "خرید", "تسویه شده", "نمونه"],
+    ["FIN-008", "2026-09-21", "expense", "هزینه غذاخوری / حقوق", "حقوق پرسنل آشپزخانه", 18000000, "حقوق", "در انتظار", "نمونه"],
+    ["FIN-009", "2026-09-20", "expense", "هزینه استخر / تعمیرات", "تعمیر تجهیزات", 5500000, "تعمیرات", "تسویه شده", "نمونه"],
+    ["FIN-010", "2026-09-21", "expense", "هزینه استخر / مواد بهداشتی", "خرید کلر", 2100000, "مواد مصرفی", "تسویه شده", ""],
+    ["FIN-011", "2026-09-21", "expense", "هزینه اداری", "قبض برق", 750000, "اداری", "تسویه شده", ""],
   ]
 
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    [
+      "id",
+      "date",
+      "type",
+      "section",
+      "description",
+      "amount",
+      "category",
+      "status",
+      "note",
+    ],
+    ...rows,
+  ])
 
-  const worksheet =
-    XLSX.utils.json_to_sheet(
-      rows
-    )
+  worksheet["!cols"] = [
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 38 },
+    { wch: 30 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 10 },
+  ]
 
+  const workbook = XLSX.utils.book_new()
 
-  const workbook =
-    XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, "finance")
 
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    worksheet,
-    "finance"
-  )
-
-
-  XLSX.writeFile(
-    workbook,
-    "finance-template.xlsx"
-  )
+  XLSX.writeFile(workbook, "finance-template.xlsx")
 }
 /* =========================================================
    Final HR Excel Export / Import
@@ -1726,38 +1613,264 @@ export function readHRExcelPackage(file) {
   })
 }
 
+/* =========================================================
+   Finance Excel — خواندن و نوشتن (نسخه‌ی انعطاف‌پذیر)
+
+   - نام Sheet مهم نیست: اگر finance / مالی پیدا نشد، اولین
+     Sheet که ستون‌های تاریخ و مبلغ دارد خوانده می‌شود.
+   - عنوان ستون‌ها فارسی یا انگلیسی، با هر حروف بزرگ/کوچک.
+   - تاریخ: متن (2026-09-20) یا سلول تاریخ واقعی Excel.
+   - بخش و زیربخش با جداکننده‌ی «/» نوشته می‌شود:
+       درآمد غذاخوری / رستوران / ناهار
+========================================================= */
+
+const FINANCE_HEADER_ALIASES = {
+  id: ["id", "شناسه", "کد"],
+  date: ["date", "تاریخ"],
+  type: ["type", "نوع", "نوعتراکنش"],
+  section: [
+    "section",
+    "sectionname",
+    "sectionpath",
+    "بخش",
+    "نامبخش",
+    "مسیربخش",
+    "زیربخش",
+  ],
+  description: ["description", "desc", "شرح", "شرحتراکنش"],
+  amount: ["amount", "مبلغ", "مقدار"],
+  category: ["category", "دسته", "دستهبندی"],
+  status: ["status", "وضعیت"],
+  note: ["note", "notes", "توضیحات", "یادداشت"],
+  sectionId: ["sectionid", "شناسهبخش"],
+}
+
+function normalizeHeaderKey(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[\u200c\s_\-.]/g, "")
+    .replace(/ي/g, "ی")
+    .replace(/ى/g, "ی")
+    .replace(/ك/g, "ک")
+}
+
+const FINANCE_HEADER_LOOKUP = (() => {
+  const lookup = {}
+
+  Object.entries(FINANCE_HEADER_ALIASES).forEach(
+    ([field, aliases]) => {
+      aliases.forEach((alias) => {
+        lookup[normalizeHeaderKey(alias)] = field
+      })
+    }
+  )
+
+  return lookup
+})()
+
+
+/*
+  مسیر بخش را استاندارد می‌کند:
+  "غذاخوری>رستوران \ ناهار"  →  "غذاخوری / رستوران / ناهار"
+*/
+function normalizeSectionPathText(value) {
+  return String(value ?? "")
+    .replace(/\u200c/g, " ")
+    .replace(/ي/g, "ی")
+    .replace(/ى/g, "ی")
+    .replace(/ك/g, "ک")
+    .split(/[\/\\>»]/)
+    .map((part) => part.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" / ")
+}
+
+
+/*
+  تاریخ سلول Excel → YYYY-MM-DD
+  (شماره‌ی سریال Excel، Date یا متن)
+*/
+function financeCellToDate(value) {
+  if (value === undefined || value === null || value === "") {
+    return ""
+  }
+
+  if (value instanceof Date) {
+    return normalizeDate(value)
+  }
+
+  if (
+    typeof value === "number" &&
+    value > 20000 &&
+    value < 80000
+  ) {
+    const parsed = XLSX.SSF.parse_date_code(value)
+
+    if (parsed && parsed.y) {
+      return `${parsed.y}-${String(parsed.m).padStart(
+        2,
+        "0"
+      )}-${String(parsed.d).padStart(2, "0")}`
+    }
+  }
+
+  return normalizeDate(value)
+}
+
+
+/*
+  ردیف عنوان را پیدا می‌کند (در ۱۵ ردیف اول)
+  و ستون‌ها را به نام استاندارد نگاشت می‌کند.
+*/
+function detectFinanceHeader(matrix) {
+  const limit = Math.min(matrix.length, 15)
+
+  for (let rowIndex = 0; rowIndex < limit; rowIndex++) {
+    const columns = {}
+
+    ;(matrix[rowIndex] || []).forEach((cell, colIndex) => {
+      const field =
+        FINANCE_HEADER_LOOKUP[normalizeHeaderKey(cell)]
+
+      if (field && columns[field] === undefined) {
+        columns[field] = colIndex
+      }
+    })
+
+    if (
+      columns.date !== undefined &&
+      columns.amount !== undefined &&
+      columns.section !== undefined
+    ) {
+      return { rowIndex, columns }
+    }
+  }
+
+  return null
+}
+
+
+function pickFinanceSheet(workbook) {
+  const names = workbook.SheetNames || []
+
+  const preferred = names.find((name) =>
+    ["finance", "مالی"].includes(
+      String(name).trim().toLowerCase()
+    )
+  )
+
+  const ordered = [
+    ...(preferred ? [preferred] : []),
+    ...names.filter(
+      (name) =>
+        name !== preferred &&
+        String(name).trim().toLowerCase() !== "finance_config"
+    ),
+  ]
+
+  for (const name of ordered) {
+    const sheet = workbook.Sheets[name]
+
+    if (!sheet) continue
+
+    const matrix = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      raw: true,
+    })
+
+    const header = detectFinanceHeader(matrix)
+
+    if (header) {
+      return { name, matrix, header }
+    }
+  }
+
+  return null
+}
+
+
 export function downloadFinalFinanceExcel(
   records = [],
   financeConfig = {}
 ) {
   const safeRecords = Array.isArray(records) ? records : []
-  const safeConfig = financeConfig && typeof financeConfig === "object"
-    ? financeConfig
-    : {}
 
-  const rows = safeRecords.map((record) => ({
-    id: record?.id ?? "",
-    date: record?.date ?? "",
-    type: record?.type ?? "",
-    section: record?.section ?? record?.sectionName ?? "",
-    description: record?.description ?? "",
-    amount: record?.amount ?? 0,
-    category: record?.category ?? "",
-    status: record?.status ?? "تسویه شده",
-    note: record?.note ?? "",
-    sectionId: record?.sectionId ?? "",
-  }))
+  const safeConfig =
+    financeConfig && typeof financeConfig === "object"
+      ? financeConfig
+      : {}
+
+  const incomeSections = Array.isArray(safeConfig.income)
+    ? safeConfig.income
+    : []
+
+  const expenseSections = Array.isArray(safeConfig.expense)
+    ? safeConfig.expense
+    : []
+
+  /*
+    مسیر کامل بخش (با زیربخش‌ها) از روی Config
+  */
+  function pathOf(sections, sectionId) {
+    const names = []
+    const seen = new Set()
+
+    let current = sections.find(
+      (item) => String(item?.id ?? "") === String(sectionId ?? "")
+    )
+
+    while (current && !seen.has(String(current.id))) {
+      seen.add(String(current.id))
+      names.unshift(current.name)
+
+      const parentId = String(current.parentId ?? "")
+
+      current = parentId
+        ? sections.find(
+            (item) => String(item?.id ?? "") === parentId
+          )
+        : null
+    }
+
+    return names.join(" / ")
+  }
+
+  const rows = safeRecords.map((record) => {
+    const type = record?.type ?? ""
+
+    const path = pathOf(
+      type === "expense" ? expenseSections : incomeSections,
+      record?.sectionId
+    )
+
+    return {
+      id: record?.id ?? "",
+      date: record?.date ?? "",
+      type,
+      section:
+        path || record?.section || record?.sectionName || "",
+      description: record?.description ?? "",
+      amount: record?.amount ?? 0,
+      category: record?.category ?? "",
+      status: record?.status ?? "تسویه شده",
+      note: record?.note ?? "",
+      sectionId: record?.sectionId ?? "",
+    }
+  })
 
   const configRows = [
-    ...(Array.isArray(safeConfig.income) ? safeConfig.income : []).map((item) => ({
+    ...incomeSections.map((item) => ({
       type: "income",
       id: item?.id ?? "",
       name: item?.name ?? "",
+      parentId: item?.parentId ?? "",
     })),
-    ...(Array.isArray(safeConfig.expense) ? safeConfig.expense : []).map((item) => ({
+    ...expenseSections.map((item) => ({
       type: "expense",
       id: item?.id ?? "",
       name: item?.name ?? "",
+      parentId: item?.parentId ?? "",
     })),
   ]
 
@@ -1777,14 +1890,21 @@ export function downloadFinalFinanceExcel(
       "sectionId",
     ],
   })
+
   XLSX.utils.book_append_sheet(workbook, financeSheet, "finance")
 
   const configSheet = XLSX.utils.json_to_sheet(configRows, {
-    header: ["type", "id", "name"],
+    header: ["type", "id", "name", "parentId"],
   })
-  XLSX.utils.book_append_sheet(workbook, configSheet, "finance_config")
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    configSheet,
+    "finance_config"
+  )
 
   const date = new Date().toISOString().slice(0, 10)
+
   XLSX.writeFile(workbook, `finance-final-${date}.xlsx`)
 }
 
@@ -1796,48 +1916,85 @@ export function readFinanceExcelPackage(file) {
     reader.onload = (event) => {
       try {
         const data = new Uint8Array(event.target.result)
+
+        /*
+          cellDates خاموش است تا تاریخ‌ها به‌صورت شماره‌ی سریال
+          بیایند و بدون خطای منطقه‌ی زمانی تبدیل شوند.
+        */
         const workbook = XLSX.read(data, {
           type: "array",
-          cellDates: true,
+          cellDates: false,
         })
 
-        const sheet =
-          workbook.Sheets["finance"] ||
-          workbook.Sheets["مالی"]
+        const picked = pickFinanceSheet(workbook)
 
-        if (!sheet) {
+        if (!picked) {
           throw new Error(
-            "Sheet finance پیدا نشد. نام Sheet باید finance باشد."
+            "ستون‌های لازم پیدا نشد. فایل باید حداقل ستون‌های date (تاریخ)، type (نوع)، section (بخش) و amount (مبلغ) داشته باشد. " +
+              `Sheetهای فایل: ${(workbook.SheetNames || []).join(", ")}`
           )
         }
 
-        const rows = XLSX.utils.sheet_to_json(sheet, {
-          defval: "",
-        })
+        const { matrix, header } = picked
+        const { columns, rowIndex } = header
 
-        const records = rows.map((row, index) => {
-          const sectionName = getSectionName(row)
+        if (columns.type === undefined) {
+          throw new Error(
+            "ستون type (نوع) پیدا نشد. مقدار آن باید income (درآمد) یا expense (هزینه) باشد."
+          )
+        }
 
-          return {
-            id:
-              String(row?.id ?? "").trim() ||
-              `excel-${Date.now()}-${index}`,
-            date: normalizeDate(row?.date),
-            type: normalizeType(row?.type),
-            section: sectionName,
-            sectionName,
-            sectionId: String(row?.sectionId ?? "").trim(),
-            description: String(row?.description ?? "").trim(),
-            amount: normalizeAmount(row?.amount),
-            category: String(row?.category ?? "").trim(),
-            status:
-              String(row?.status ?? "تسویه شده").trim() ||
-              "تسویه شده",
-            note: String(row?.note ?? "").trim(),
+        const get = (row, field) =>
+          columns[field] === undefined
+            ? ""
+            : row[columns[field]] ?? ""
+
+        const records = []
+
+        for (let i = rowIndex + 1; i < matrix.length; i++) {
+          const row = matrix[i] || []
+
+          const description = String(get(row, "description")).trim()
+          const amount = normalizeAmount(get(row, "amount"))
+          const sectionPath = normalizeSectionPathText(
+            get(row, "section")
+          )
+
+          // ردیف کاملاً خالی
+          if (!description && !amount && !sectionPath) {
+            continue
           }
-        })
 
+          // ردیفی که نه مبلغ دارد نه شرح
+          if (!amount && !description) {
+            continue
+          }
+
+          const section = sectionPath || "بدون بخش"
+
+          records.push({
+            id:
+              String(get(row, "id")).trim() ||
+              `excel-${Date.now()}-${i}`,
+            date: financeCellToDate(get(row, "date")),
+            type: normalizeType(get(row, "type")),
+            section,
+            sectionName: section,
+            sectionId: String(get(row, "sectionId")).trim(),
+            description,
+            amount,
+            category: String(get(row, "category")).trim(),
+            status:
+              String(get(row, "status")).trim() || "تسویه شده",
+            note: String(get(row, "note")).trim(),
+          })
+        }
+
+        /*
+          Sheet اختیاری finance_config (خروجی «دانلود اکسل نهایی»)
+        */
         let config = null
+
         const configSheet = workbook.Sheets["finance_config"]
 
         if (configSheet) {
@@ -1852,17 +2009,36 @@ export function readFinanceExcelPackage(file) {
           }
 
           for (const row of configRows) {
-            const type = normalizeType(row?.type)
-            const name = String(row?.name ?? "").trim()
-            const id = String(row?.id ?? "").trim()
+            const lower = {}
+
+            Object.keys(row).forEach((key) => {
+              lower[normalizeHeaderKey(key)] = row[key]
+            })
+
+            const type = normalizeType(lower.type ?? lower["نوع"])
+            const name = String(
+              lower.name ?? lower["نام"] ?? ""
+            ).trim()
+            const id = String(lower.id ?? "").trim()
+            const parentId = String(lower.parentid ?? "").trim()
 
             if (!name) continue
 
-            const target = type === "expense" ? config.expense : config.income
-            if (!target.some((item) => item.name === name)) {
+            const target =
+              type === "expense" ? config.expense : config.income
+
+            const exists = target.some((item) =>
+              id
+                ? item.id === id
+                : item.name === name &&
+                  (item.parentId || "") === parentId
+            )
+
+            if (!exists) {
               target.push({
                 id: id || `${type}-${name}`,
                 name,
+                parentId,
               })
             }
           }
@@ -1872,7 +2048,8 @@ export function readFinanceExcelPackage(file) {
       } catch (error) {
         reject(
           new Error(
-            error.message || "خواندن بسته Excel امور مالی انجام نشد."
+            error.message ||
+              "خواندن بسته Excel امور مالی انجام نشد."
           )
         )
       }
@@ -1885,16 +2062,3 @@ export function readFinanceExcelPackage(file) {
     reader.readAsArrayBuffer(file)
   })
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

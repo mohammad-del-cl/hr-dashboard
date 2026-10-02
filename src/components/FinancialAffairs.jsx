@@ -40,6 +40,16 @@ import {
   downloadFinalFinanceExcel,
 } from "../services/excelService"
 
+import SectionTree from "./FinanceSectionTree"
+import ProfitLossPanel from "./FinanceProfitLoss"
+import {
+  findSectionByPath,
+  getSectionIdsWithDescendants,
+  getSectionPath,
+  isDateInRange,
+  splitSectionPath,
+} from "./financeTree"
+
 
 /* =========================================================
    Default Finance Config
@@ -285,6 +295,7 @@ function formatMoney(value) {
 }
 
 
+
 /*
   تاریخ امروز
 */
@@ -500,6 +511,12 @@ function normalizeFinanceConfig(
                 )}`,
 
             name,
+
+            parentId:
+              normalizeId(section?.parentId) ===
+              normalizeId(section?.id)
+                ? ""
+                : normalizeId(section?.parentId),
           }
         }
       )
@@ -619,6 +636,21 @@ export default function FinancialAffairs({
 
   const excelInputRef =
     useRef(null)
+
+  const [
+    newSectionParentId,
+    setNewSectionParentId,
+  ] = useState("")
+
+  const [
+    dateFrom,
+    setDateFrom,
+  ] = useState("")
+
+  const [
+    dateTo,
+    setDateTo,
+  ] = useState("")
 
   const [
     recordForm,
@@ -951,6 +983,8 @@ export default function FinancialAffairs({
     const exists =
       existingSections.some(
         (section) =>
+          normalizeId(section.parentId) ===
+            normalizeId(newSectionParentId) &&
           normalizeName(
             section.name
           ) ===
@@ -964,11 +998,18 @@ export default function FinancialAffairs({
       return
     }
 
+    const parentExists = existingSections.some(
+      (section) =>
+        normalizeId(section.id) ===
+        normalizeId(newSectionParentId)
+    )
+
     const newSection = {
-      id: createId(
-        activeSection
-      ),
+      id: createId(activeSection),
       name,
+      parentId: parentExists
+        ? normalizeId(newSectionParentId)
+        : "",
     }
 
     const newConfig = {
@@ -1001,6 +1042,7 @@ export default function FinancialAffairs({
 
     setSearchText("")
     setNewSectionName("")
+    setNewSectionParentId("")
     setShowAddModal(false)
   }
 
@@ -1034,6 +1076,20 @@ export default function FinancialAffairs({
         )} تراکنش برای این بخش ثبت شده است.\nابتدا تراکنش‌های این بخش را حذف کنید.`
       )
 
+      return
+    }
+
+    const hasChildren = (
+      config[activeSection] || []
+    ).some(
+      (item) =>
+        normalizeId(item.parentId) === sectionId
+    )
+
+    if (hasChildren) {
+      alert(
+        `امکان حذف «${section.name}» وجود ندارد.\n\nاین بخش دارای زیربخش است.\nابتدا زیربخش‌ها را حذف کنید.`
+      )
       return
     }
 
@@ -1116,55 +1172,73 @@ export default function FinancialAffairs({
   function findOrCreateSection(
     workingConfig,
     type,
-    sectionName
+    sectionName,
+    previousSections = []
   ) {
-    const normalizedSectionName =
-      normalizeName(
-        sectionName
-      )
+    /*
+      sectionName می‌تواند مسیر زیربخش باشد:
+      «درآمد غذاخوری / رستوران / ناهار»
+      بخش‌های والد اگر نباشند ساخته می‌شوند.
+      اگر بخشی با همین مسیر در Config قبلی بوده،
+      شناسه‌ی قبلی آن حفظ می‌شود.
+    */
+    const parts = splitSectionPath(sectionName)
 
-    if (
-      !normalizedSectionName
-    ) {
+    if (parts.length === 0) {
       return null
     }
 
-    const sections =
-      Array.isArray(
-        workingConfig[type]
-      )
+    let parentId = ""
+    let current = null
+    const pathNames = []
+
+    for (const part of parts) {
+      pathNames.push(part)
+
+      const sections = Array.isArray(workingConfig[type])
         ? workingConfig[type]
         : []
 
-    const existingSection =
-      sections.find(
+      const existing = sections.find(
         (section) =>
-          normalizeName(
-            section.name
-          ) ===
-          normalizedSectionName
+          normalizeId(section.parentId) === parentId &&
+          normalizeName(section.name) === normalizeName(part)
       )
 
-    if (
-      existingSection
-    ) {
-      return existingSection
+      if (existing) {
+        current = existing
+      } else {
+        const previous = findSectionByPath(
+          previousSections,
+          pathNames.join(" / ")
+        )
+
+        const previousId = previous
+          ? normalizeId(previous.id)
+          : ""
+
+        const idTaken =
+          previousId &&
+          sections.some(
+            (section) => normalizeId(section.id) === previousId
+          )
+
+        current = {
+          id:
+            previousId && !idTaken
+              ? previousId
+              : createId(type),
+          name: part,
+          parentId,
+        }
+
+        workingConfig[type] = [...sections, current]
+      }
+
+      parentId = normalizeId(current.id)
     }
 
-    const newSection = {
-      id: createId(type),
-      name:
-        String(
-          sectionName
-        ).trim(),
-    }
-
-    workingConfig[type] = [
-      ...sections,
-      newSection,
-    ]
-
-    return newSection
+    return current
   }
 
 
@@ -1236,25 +1310,12 @@ export default function FinancialAffairs({
         for (const record of importedRecords) {
           const type = normalizeFinanceType(record.type)
           const sectionName = getExcelSectionName(record)
-          const section = findOrCreateSection(
+          findOrCreateSection(
             newConfig,
             type,
-            sectionName
+            sectionName,
+            previousSections[type]
           )
-
-          const previousSection = previousSections[type].find(
-            (item) =>
-              normalizeName(item?.name) ===
-              normalizeName(sectionName)
-          )
-
-          if (
-            section &&
-            previousSection &&
-            normalizeId(previousSection.id)
-          ) {
-            section.id = normalizeId(previousSection.id)
-          }
         }
       }
 
@@ -1272,11 +1333,10 @@ export default function FinancialAffairs({
         }
 
         if (!section) {
-          section = (newConfig[type] || []).find(
-            (item) =>
-              normalizeName(item?.name) ===
-              normalizeName(sectionName)
-          ) || null
+          section = findSectionByPath(
+            newConfig[type] || [],
+            sectionName
+          )
         }
 
         if (!section) {
@@ -1760,9 +1820,13 @@ export default function FinancialAffairs({
         return []
       }
 
-      const selectedId =
-        normalizeId(
-          selectedSubSection.id
+      // بخش انتخاب‌شده + همه‌ی زیربخش‌ها در هر عمق
+      const sectionIds =
+        getSectionIdsWithDescendants(
+          currentSections,
+          normalizeId(
+            selectedSubSection.id
+          )
         )
 
       return records.filter(
@@ -1771,14 +1835,18 @@ export default function FinancialAffairs({
             record.type
           ) ===
             activeSection &&
-          normalizeId(
-            record.sectionId
-          ) === selectedId
+          sectionIds.has(
+            normalizeId(record.sectionId)
+          ) &&
+          isDateInRange(record.date, dateFrom, dateTo)
       )
     }, [
       records,
       activeSection,
       selectedSubSection,
+      currentSections,
+      dateFrom,
+      dateTo,
     ])
 
 
@@ -2257,88 +2325,27 @@ export default function FinancialAffairs({
 
               <div className="space-y-2">
 
-                {currentSections.map(
-                  (section) => {
-                    const isSelected =
-                      normalizeId(
-                        selectedSubSectionId
-                      ) ===
-                      normalizeId(
-                        section.id
-                      )
-
-                    return (
-                      <div
-                        key={
-                          normalizeId(
-                            section.id
-                          )
-                        }
-                        className={`group flex items-center gap-2 rounded-xl border transition ${
-                          isSelected
-                            ? "border-[#d4a017] bg-[#d4a017]/10"
-                            : "border-transparent hover:border-white/10 hover:bg-white/5"
-                        }`}
-                      >
-
-                        <button
-                          onClick={() => {
-                            setSelectedSubSectionId(
-                              normalizeId(
-                                section.id
-                              )
-                            )
-
-                            setSearchText("")
-                          }}
-                          className="flex flex-1 items-center gap-3 px-3 py-3 text-right"
-                        >
-
-                          <Building2
-                            size={17}
-                            className={
-                              isSelected
-                                ? "text-[#f0c040]"
-                                : "text-gray-500"
-                            }
-                          />
-
-                          <span className="text-sm">
-                            {section.name}
-                          </span>
-
-                        </button>
-
-
-                        <button
-                          onClick={() =>
-                            handleDeleteSection(
-                              section
-                            )
-                          }
-                          className="ml-2 flex h-8 w-8 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-500/10 hover:text-red-400"
-                          title="حذف بخش"
-                        >
-                          <Trash2
-                            size={16}
-                          />
-                        </button>
-
-                      </div>
-                    )
-                  }
-                )}
+                <SectionTree
+                  sections={currentSections}
+                  selectedId={selectedSubSectionId}
+                  onSelect={(sectionId) => {
+                    setSelectedSubSectionId(normalizeId(sectionId))
+                    setSearchText("")
+                  }}
+                  onAddChild={(section) => {
+                    setNewSectionName("")
+                    setNewSectionParentId(normalizeId(section.id))
+                    setShowAddModal(true)
+                  }}
+                  onDelete={handleDeleteSection}
+                />
 
 
                 <button
                   onClick={() => {
-                    setNewSectionName(
-                      ""
-                    )
-
-                    setShowAddModal(
-                      true
-                    )
+                    setNewSectionName("")
+ setNewSectionParentId("")
+ setShowAddModal(true)
                   }}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#d4a017]/50 px-3 py-3 text-sm text-[#f0c040] transition hover:bg-[#d4a017]/10"
                 >
@@ -2369,6 +2376,7 @@ export default function FinancialAffairs({
             "profit-loss" ? (
 
               <ProfitLossPanel
+                OverviewComponent={ProfitLossOverview}
                 totalIncome={
                   totalIncome
                 }
@@ -2383,6 +2391,11 @@ export default function FinancialAffairs({
             ) : selectedSubSection ? (
 
               <FinancialSectionPanel
+ sections={currentSections}
+ dateFrom={dateFrom}
+ dateTo={dateTo}
+ setDateFrom={setDateFrom}
+ setDateTo={setDateTo}
                 section={
                   selectedSubSection
                 }
@@ -2419,13 +2432,9 @@ export default function FinancialAffairs({
 
               <EmptySectionPanel
                 onAdd={() => {
-                  setNewSectionName(
-                    ""
-                  )
-
-                  setShowAddModal(
-                    true
-                  )
+                  setNewSectionName("")
+ setNewSectionParentId("")
+ setShowAddModal(true)
                 }}
               />
 
@@ -2450,13 +2459,28 @@ export default function FinancialAffairs({
               <div>
 
                 <h2 className="text-lg font-bold">
-                  افزودن بخش{" "}
+                  {newSectionParentId ? (
+                  "افزودن زیربخش"
+                ) : (
+                  <>
+                    افزودن بخش{" "}
+                    {activeSection === "income"
+                      ? "درآمد"
+                      : "هزینه"}
+                  </>
+                )}
+              </h2>
 
-                  {activeSection ===
-                  "income"
-                    ? "درآمد"
-                    : "هزینه"}
-                </h2>
+              {newSectionParentId && (
+                <p className="mt-1 text-xs font-medium text-[#f0c040]">
+                  زیربخشِ «
+                  {getSectionPath(
+                    currentSections,
+                    newSectionParentId
+                  )}
+                  »
+                </p>
+              )}
 
                 <p className="mt-1 text-xs leading-6 text-gray-500">
                   نام بخش مالی جدید را وارد کنید.
@@ -2591,6 +2615,11 @@ export default function FinancialAffairs({
 ========================================================= */
 
 function FinancialSectionPanel({
+  sections,
+  dateFrom,
+  dateTo,
+  setDateFrom,
+  setDateTo,
   section,
   type,
   records,
@@ -2604,6 +2633,13 @@ function FinancialSectionPanel({
 }) {
   const isIncome =
     type === "income"
+
+  // اگر تراکنشی از زیربخش‌ها هم در لیست باشد، ستون «بخش» نمایش داده می‌شود
+  const showSectionColumn = records.some(
+    (record) =>
+      normalizeId(record.sectionId) !==
+      normalizeId(section.id)
+  )
 
   return (
     <div>
@@ -2723,6 +2759,45 @@ function FinancialSectionPanel({
       </div>
 
 
+      <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
+        <div>
+          <label className="mb-2 block text-xs text-gray-500">
+            از تاریخ
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-[#151515] px-4 py-3 text-sm text-white outline-none focus:border-[#d4a017]"
+          />
+        </div>
+
+        <div>
+          <label className="mb-2 block text-xs text-gray-500">
+            تا تاریخ
+          </label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-[#151515] px-4 py-3 text-sm text-white outline-none focus:border-[#d4a017]"
+          />
+        </div>
+
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => {
+              setDateFrom("")
+              setDateTo("")
+            }}
+            className="flex items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm text-gray-400 transition hover:bg-white/5 hover:text-white"
+          >
+            <X size={16} />
+            حذف فیلتر تاریخ
+          </button>
+        )}
+      </div>
+
       <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
 
         <div className="border-b border-white/10 bg-[#181818] px-5 py-4">
@@ -2745,6 +2820,12 @@ function FinancialSectionPanel({
                 <th className="px-5 py-4">
                   تاریخ
                 </th>
+
+                {showSectionColumn && (
+                  <th className="px-5 py-4">
+                    بخش
+                  </th>
+                )}
 
                 <th className="px-5 py-4">
                   شرح
@@ -2779,7 +2860,7 @@ function FinancialSectionPanel({
                 <tr>
 
                   <td
-                    colSpan="6"
+                    colSpan={showSectionColumn ? 7 : 6}
                     className="px-5 py-16 text-center text-sm text-gray-600"
                   >
 
@@ -2820,6 +2901,17 @@ function FinancialSectionPanel({
                         {record.date ||
                           "—"}
                       </td>
+
+                      {showSectionColumn && (
+                        <td className="px-5 py-4 text-sm text-gray-400">
+                          {getSectionPath(
+                            sections,
+                            record.sectionId
+                          ) ||
+                            record.sectionName ||
+                            "—"}
+                        </td>
+                      )}
 
                       <td className="px-5 py-4 text-sm text-white">
                         {record.description ||
@@ -2980,7 +3072,7 @@ function FinancialSectionPanel({
    Profit / Loss Panel
 ========================================================= */
 
-function ProfitLossPanel({
+function ProfitLossOverview({
   totalIncome,
   totalExpense,
   profit,
@@ -3007,21 +3099,19 @@ function ProfitLossPanel({
 
 
   const incomeBySection =
-    (
-      config.income || []
-    ).map(
-      (section) => ({
-        ...section,
-
-        total:
+    (config.income || []).map(
+(section) => ({
+...section,
+name: getSectionPath(config.income || [], section.id) || section.name,
+total:
           incomeRecords
             .filter(
               (record) =>
-                normalizeId(
-                  record.sectionId
-                ) ===
-                normalizeId(
+                getSectionIdsWithDescendants(
+                  config.income || [],
                   section.id
+                ).has(
+                  normalizeId(record.sectionId)
                 )
             )
             .reduce(
@@ -3040,21 +3130,19 @@ function ProfitLossPanel({
 
 
   const expenseBySection =
-    (
-      config.expense || []
-    ).map(
-      (section) => ({
-        ...section,
-
-        total:
+    (config.expense || []).map(
+(section) => ({
+...section,
+name: getSectionPath(config.expense || [], section.id) || section.name,
+total:
           expenseRecords
             .filter(
               (record) =>
-                normalizeId(
-                  record.sectionId
-                ) ===
-                normalizeId(
+                getSectionIdsWithDescendants(
+                  config.expense || [],
                   section.id
+                ).has(
+                  normalizeId(record.sectionId)
                 )
             )
             .reduce(

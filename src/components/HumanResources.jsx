@@ -29,6 +29,20 @@ import {
   downloadEmployeesExcel,
 } from "../services/excelService"
 
+import HRChildTree from "./HRChildTree"
+
+import {
+  splitSubPath,
+  joinSubPath,
+  findNodeById,
+  flattenChildren,
+  countNodeEmployees,
+  employeeInBranch,
+  addChildNode,
+  removeChildNode,
+  mergeEmployeesIntoTreeDeep,
+} from "./hrTree"
+
 /* =========================================================
    Default departments
 ========================================================= */
@@ -176,6 +190,35 @@ function getEmployeeId(employee) {
    Department helpers
 ========================================================= */
 
+function normalizeChildNodes(children, parentName) {
+  if (!Array.isArray(children)) {
+    return []
+  }
+
+  return children.map((child) => {
+    const name =
+      typeof child === "string"
+        ? child
+        : child?.name
+
+    return {
+      id:
+        child?.id ||
+        createId(
+          "subdepartment",
+          `${parentName}-${name}`
+        ),
+
+      name: name || "زیرواحد بدون نام",
+
+      children: normalizeChildNodes(
+        child?.children,
+        `${parentName}-${name}`
+      ),
+    }
+  })
+}
+
 function normalizeDepartmentTree(tree) {
   if (Array.isArray(tree)) {
     return tree.map((department) => ({
@@ -190,24 +233,10 @@ function normalizeDepartmentTree(tree) {
         department.name ||
         "واحد بدون نام",
 
-      children: Array.isArray(
-        department.children
-      )
-        ? department.children.map(
-            (child) => ({
-              id:
-                child.id ||
-                createId(
-                  "subdepartment",
-                  child.name
-                ),
-
-              name:
-                child.name ||
-                "زیرواحد بدون نام",
-            })
-          )
-        : [],
+      children: normalizeChildNodes(
+        department.children,
+        department.name
+      ),
     }))
   }
 
@@ -224,23 +253,10 @@ function normalizeDepartmentTree(tree) {
 
         name: departmentName,
 
-        children: Array.isArray(children)
-          ? children.map(
-              (childName) => ({
-                id: createId(
-                  "subdepartment",
-                  `${departmentName}-${childName}`
-                ),
-
-                name:
-                  typeof childName ===
-                  "string"
-                    ? childName
-                    : childName?.name ||
-                      "",
-              })
-            )
-          : [],
+        children: normalizeChildNodes(
+          children,
+          departmentName
+        ),
       })
     )
   }
@@ -256,81 +272,11 @@ function mergeEmployeesIntoTree(
   currentTree,
   employees
 ) {
-  const result = currentTree.map(
-    (department) => ({
-      ...department,
-      children: [
-        ...(department.children || []),
-      ],
-    })
+  return mergeEmployeesIntoTreeDeep(
+    currentTree,
+    employees,
+    createId
   )
-
-  for (const employee of employees) {
-    const departmentName = String(
-      employee?.department || ""
-    ).trim()
-
-    const subDepartmentName = String(
-      employee?.sub_department || ""
-    ).trim()
-
-    if (!departmentName) {
-      continue
-    }
-
-    const departmentIndex =
-      result.findIndex(
-        (department) =>
-          normalizeText(
-            department.name
-          ) ===
-          normalizeText(
-            departmentName
-          )
-      )
-
-    let department
-
-    if (departmentIndex === -1) {
-      department = {
-        id: createId(
-          "department",
-          departmentName
-        ),
-        name: departmentName,
-        children: [],
-      }
-
-      result.push(department)
-    } else {
-      department =
-        result[departmentIndex]
-    }
-
-    if (
-      subDepartmentName &&
-      !department.children.some(
-        (child) =>
-          normalizeText(
-            child.name
-          ) ===
-          normalizeText(
-            subDepartmentName
-          )
-      )
-    ) {
-      department.children.push({
-        id: createId(
-          "subdepartment",
-          `${departmentName}-${subDepartmentName}`
-        ),
-
-        name: subDepartmentName,
-      })
-    }
-  }
-
-  return result
 }
 
 /* =========================================================
@@ -571,7 +517,7 @@ function HumanResources({
       selectedDepartmentId,
     ])
 
-  const selectedChild =
+  const selectedChildInfo =
     useMemo(() => {
       if (
         !selectedDepartment ||
@@ -580,17 +526,20 @@ function HumanResources({
         return null
       }
 
-      return (
-        selectedDepartment.children?.find(
-          (child) =>
-            child.id ===
-            selectedChildId
-        ) || null
+      return findNodeById(
+        selectedDepartment.children,
+        selectedChildId
       )
     }, [
       selectedDepartment,
       selectedChildId,
     ])
+
+  const selectedChild =
+    selectedChildInfo?.node || null
+
+  const selectedPathNames =
+    selectedChildInfo?.pathNames || []
 
   /* =========================================================
      Current employees
@@ -609,51 +558,19 @@ function HumanResources({
         return []
       }
 
-      const departmentName =
-        normalizeText(
-          selectedDepartment.name
-        )
-
-      const childName =
-        selectedChild
-          ? normalizeText(
-              selectedChild.name
-            )
-          : null
-
+      // شاخه‌ی انتخاب‌شده + همه‌ی زیرشاخه‌های آن
       return employees.filter(
-        (employee) => {
-          const employeeDepartment =
-            normalizeText(
-              employee.department
-            )
-
-          const employeeSubDepartment =
-            normalizeText(
-              employee.sub_department
-            )
-
-          if (
-            employeeDepartment !==
-            departmentName
-          ) {
-            return false
-          }
-
-          if (!childName) {
-            return true
-          }
-
-          return (
-            employeeSubDepartment ===
-            childName
+        (employee) =>
+          employeeInBranch(
+            employee,
+            selectedDepartment.name,
+            selectedPathNames
           )
-        }
       )
     }, [
       employees,
       selectedDepartment,
-      selectedChild,
+      selectedPathNames,
       showAllEmployees,
     ])
 
@@ -817,14 +734,17 @@ function HumanResources({
         return
       }
 
-      const exists =
-        selectedDepartment.children?.some(
-          (child) =>
-            normalizeText(
-              child.name
-            ) ===
-            normalizeText(name)
-        )
+      // اگر زیرواحدی انتخاب شده باشد، زیر همان ساخته می‌شود؛
+      // وگرنه مستقیم زیر واحد اصلی.
+      const siblings = selectedChild
+        ? selectedChild.children || []
+        : selectedDepartment.children || []
+
+      const exists = siblings.some(
+        (child) =>
+          normalizeText(child.name) ===
+          normalizeText(name)
+      )
 
       if (exists) {
         alert(
@@ -836,31 +756,22 @@ function HumanResources({
       const newChild = {
         id: createId(
           "subdepartment",
-          `${selectedDepartment.name}-${name}`
+          [
+            selectedDepartment.name,
+            ...selectedPathNames,
+            name,
+          ].join("-")
         ),
         name,
+        children: [],
       }
 
       const nextDepartments =
-        departments.map(
-          (department) => {
-            if (
-              department.id !==
-              selectedDepartment.id
-            ) {
-              return department
-            }
-
-            return {
-              ...department,
-
-              children: [
-                ...(department.children ||
-                  []),
-                newChild,
-              ],
-            }
-          }
+        addChildNode(
+          departments,
+          selectedDepartment.id,
+          selectedChild?.id || null,
+          newChild
         )
 
       setDepartments(
@@ -970,17 +881,29 @@ function HumanResources({
   const handleDeleteSubdepartment =
     async (
       department,
-      child
+      child,
+      pathNames
     ) => {
       const employeeCount =
-        getChildCount(
+        countNodeEmployees(
+          employees,
           department.name,
-          child.name
+          pathNames || [child.name]
         )
 
       if (employeeCount > 0) {
         alert(
-          `امکان حذف زیرواحد «${child.name}» وجود ندارد.\n\n${employeeCount} کارمند در این زیرواحد قرار دارند.\nابتدا کارکنان را به زیرواحد دیگری منتقل کن یا زیرواحد آنها را خالی کن.`
+          `امکان حذف زیرواحد «${child.name}» وجود ندارد.\n\n${employeeCount} کارمند در این زیرواحد (یا زیرشاخه‌های آن) قرار دارند.\nابتدا کارکنان را به زیرواحد دیگری منتقل کن یا زیرواحد آنها را خالی کن.`
+        )
+
+        return
+      }
+
+      if (
+        (child.children || []).length > 0
+      ) {
+        alert(
+          `زیرواحد «${child.name}» دارای زیرشاخه است.\nابتدا زیرشاخه‌ها را حذف کن.`
         )
 
         return
@@ -996,26 +919,10 @@ function HumanResources({
       }
 
       const nextDepartments =
-        departments.map(
-          (item) => {
-            if (
-              item.id !==
-              department.id
-            ) {
-              return item
-            }
-
-            return {
-              ...item,
-
-              children:
-                item.children.filter(
-                  (itemChild) =>
-                    itemChild.id !==
-                    child.id
-                ),
-            }
-          }
+        removeChildNode(
+          departments,
+          department.id,
+          child.id
         )
 
       setDepartments(
@@ -1330,6 +1237,14 @@ function HumanResources({
     )
   }
 
+  const openAddChild = (
+    department,
+    child
+  ) => {
+    selectChild(department, child)
+    setShowAddSubdepartment(true)
+  }
+
   const toggleDepartment =
     (departmentId) => {
       setExpandedDepartments(
@@ -1597,85 +1512,30 @@ function HumanResources({
                       </button>
                     </div>
 
-                    {/* Children */}
+                    {/* Children (recursive tree) */}
 
                     {expanded &&
                       department
                         .children
                         ?.length > 0 && (
-                        <div className="mr-5 mt-1 space-y-1 border-r border-white/10 pr-2">
-
-                          {department.children.map(
-                            (child) => {
-                              const childActive =
-                                selectedChildId ===
-                                  child.id &&
-                                selectedDepartmentId ===
-                                  department.id
-
-                              return (
-                                <div
-                                  key={
-                                    child.id
-                                  }
-                                  className={`flex items-center gap-1 rounded-lg transition ${
-                                    childActive
-                                      ? "bg-[#d4a017]/15"
-                                      : "hover:bg-white/5"
-                                  }`}
-                                >
-                                  <button
-                                    onClick={() =>
-                                      selectChild(
-                                        department,
-                                        child
-                                      )
-                                    }
-                                    className={`flex min-w-0 flex-1 items-center justify-between rounded-lg px-3 py-2 text-right text-xs ${
-                                      childActive
-                                        ? "font-bold text-[#f0c040]"
-                                        : "text-gray-400 hover:text-white"
-                                    }`}
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-
-                                      <span className="truncate">
-                                        {
-                                          child.name
-                                        }
-                                      </span>
-                                    </span>
-
-                                    <span className="mr-2 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-gray-600">
-                                      {getChildCount(
-                                        department.name,
-                                        child.name
-                                      )}
-                                    </span>
-                                  </button>
-
-                                  {/* Delete subdepartment */}
-
-                                  <button
-                                    onClick={() =>
-                                      handleDeleteSubdepartment(
-                                        department,
-                                        child
-                                      )
-                                    }
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-500/10 hover:text-red-400"
-                                    title="حذف زیرواحد"
-                                  >
-                                    <Trash2
-                                      size={14}
-                                    />
-                                  </button>
-                                </div>
-                              )
+                        <div className="mr-5 mt-1 border-r border-white/10 pr-2">
+                          <HRChildTree
+                            department={department}
+                            nodes={department.children}
+                            employees={employees}
+                            activeChildId={
+                              !showAllEmployees &&
+                              selectedDepartmentId ===
+                                department.id
+                                ? selectedChildId
+                                : null
                             }
-                          )}
-
+                            onSelect={selectChild}
+                            onAddChild={openAddChild}
+                            onDelete={
+                              handleDeleteSubdepartment
+                            }
+                          />
                         </div>
                       )}
                   </div>
@@ -1713,9 +1573,10 @@ function HumanResources({
                     />
 
                     <span className="rounded-lg border border-[#d4a017]/30 bg-[#d4a017]/10 px-2.5 py-1 text-xs text-[#f0c040]">
-                      {
-                        selectedDepartment?.name
-                      }
+                      {[
+                        selectedDepartment?.name,
+                        ...selectedPathNames.slice(0, -1),
+                      ].join(" / ")}
                     </span>
                   </>
                 )}
@@ -1835,7 +1696,10 @@ function HumanResources({
                 {showAllEmployees
                   ? "کل سازمان"
                   : selectedChild
-                    ? `${selectedDepartment?.name} / ${selectedChild.name}`
+                    ? [
+                        selectedDepartment?.name,
+                        ...selectedPathNames,
+                      ].join(" / ")
                     : selectedDepartment?.name ||
                       "انتخاب نشده"}
               </div>
@@ -2066,9 +1930,10 @@ function HumanResources({
           <p className="mb-4 text-sm leading-6 text-gray-400">
             زیرواحد جدید برای «
             <span className="font-bold text-[#f0c040]">
-              {
-                selectedDepartment?.name
-              }
+              {[
+                selectedDepartment?.name,
+                ...selectedPathNames,
+              ].join(" / ")}
             </span>
             » ایجاد می‌شود.
           </p>
@@ -2227,9 +2092,13 @@ function EmployeeRow({
         )
     )
 
-  const subDepartments =
-    selectedDepartment?.children ||
-    []
+  const subOptions = flattenChildren(
+    selectedDepartment?.children || []
+  )
+
+  const currentSubPath = joinSubPath(
+    splitSubPath(employeeSubDepartment)
+  )
 
   return (
     <tr className="border-b border-white/5 transition hover:bg-white/[0.025]">
@@ -2316,55 +2185,47 @@ function EmployeeRow({
 
           <select
             value={
-              subDepartments.find(
-                (child) =>
+              subOptions.find(
+                (option) =>
                   normalizeText(
-                    child.name
+                    option.path
                   ) ===
                   normalizeText(
-                    employeeSubDepartment
+                    currentSubPath
                   )
-              )?.id || ""
+              )?.path || ""
             }
             disabled={
               !selectedDepartment ||
-              subDepartments.length ===
-                0
+              subOptions.length === 0
             }
-            onChange={(event) => {
-              const child =
-                subDepartments.find(
-                  (item) =>
-                    item.id ===
-                    event.target.value
-                )
-
+            onChange={(event) =>
               onUpdateDepartment(
                 employeeId,
                 selectedDepartment?.name ||
                   employeeDepartment,
-                child?.name || ""
+                event.target.value
               )
-            }}
+            }
             className="rounded-lg border border-white/10 bg-[#181818] px-3 py-2 text-xs text-white outline-none focus:border-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <option
               value=""
               className="bg-[#181818]"
             >
-              {subDepartments.length
+              {subOptions.length
                 ? "انتخاب زیرواحد"
                 : "بدون زیرواحد"}
             </option>
 
-            {subDepartments.map(
-              (child) => (
+            {subOptions.map(
+              (option) => (
                 <option
-                  key={child.id}
-                  value={child.id}
+                  key={option.id}
+                  value={option.path}
                   className="bg-[#181818]"
                 >
-                  {child.name}
+                  {option.path}
                 </option>
               )
             )}
