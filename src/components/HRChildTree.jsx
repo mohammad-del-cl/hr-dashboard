@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   FolderPlus,
   Trash2,
+  UserPlus,
 } from "lucide-react"
 
 import { countNodeEmployees } from "./hrTree"
@@ -24,6 +25,7 @@ export default function HRChildTree({
   onSelect,
   onAddChild,
   onDelete,
+  onAddEmployee,
 }) {
   const [collapsed, setCollapsed] = useState({})
 
@@ -85,6 +87,18 @@ export default function HRChildTree({
                 </span>
               </button>
 
+              {onAddEmployee && (
+                <button
+                  onClick={() =>
+                    onAddEmployee(department, node, pathNames)
+                  }
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-[#d4a017]/10 hover:text-[#f0c040]"
+                  title="افزودن کارمند به این زیرواحد"
+                >
+                  <UserPlus size={14} />
+                </button>
+              )}
+
               <button
                 onClick={() => onAddChild(department, node, pathNames)}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-[#d4a017]/10 hover:text-[#f0c040]"
@@ -113,6 +127,7 @@ export default function HRChildTree({
                   onSelect={onSelect}
                   onAddChild={onAddChild}
                   onDelete={onDelete}
+                  onAddEmployee={onAddEmployee}
                 />
               </div>
             )}

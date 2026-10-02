@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Trash2,
+  UserPlus,
   UserRound,
   Users,
   X,
@@ -363,6 +364,27 @@ function HumanResources({
     expandedDepartments,
     setExpandedDepartments,
   ] = useState({})
+
+  // افزودن دستی کارمند
+  const [
+    showAddEmployee,
+    setShowAddEmployee,
+  ] = useState(false)
+
+  const [
+    newEmployeeForm,
+    setNewEmployeeForm,
+  ] = useState({})
+
+  const [
+    newEmployeeDepartmentId,
+    setNewEmployeeDepartmentId,
+  ] = useState("")
+
+  const [
+    newEmployeeSubPath,
+    setNewEmployeeSubPath,
+  ] = useState("")
 
   /* =========================================================
      Load HR config
@@ -1136,6 +1158,135 @@ function HumanResources({
     }
 
   /* =========================================================
+     Add employee manually
+  ========================================================= */
+
+  const openAddEmployee = (
+    departmentId,
+    subPath
+  ) => {
+    const fallbackDepartment =
+      departments.find(
+        (department) =>
+          department.id === departmentId
+      ) ||
+      selectedDepartment ||
+      departments[0] ||
+      null
+
+    setNewEmployeeForm({})
+    setNewEmployeeDepartmentId(
+      fallbackDepartment?.id || ""
+    )
+    setNewEmployeeSubPath(subPath || "")
+    setShowAddEmployee(true)
+  }
+
+  // دکمه‌ی «کارمند جدید»: واحد/زیرواحد فعلی را پیش‌فرض می‌گذارد
+  const openAddEmployeeFromSelection = () => {
+    openAddEmployee(
+      selectedDepartment?.id,
+      !showAllEmployees && selectedChild
+        ? joinSubPath(selectedPathNames)
+        : ""
+    )
+  }
+
+  const handleAddEmployee = async () => {
+    const name = String(
+      newEmployeeForm.name || ""
+    ).trim()
+
+    if (!name) {
+      alert("نام کارمند را وارد کن.")
+      return
+    }
+
+    const department = departments.find(
+      (item) =>
+        item.id === newEmployeeDepartmentId
+    )
+
+    if (!department) {
+      alert("واحد کارمند را انتخاب کن.")
+      return
+    }
+
+    const newEmployee = {
+      id: crypto.randomUUID(),
+      name,
+      department: department.name,
+      sub_department: newEmployeeSubPath || "",
+    }
+
+    for (const column of columns) {
+      const raw = String(
+        newEmployeeForm[column.key] ?? ""
+      ).trim()
+
+      if (raw === "") {
+        continue
+      }
+
+      if (column.key === "salary" || column.key === "age") {
+        const numeric = Number(
+          raw
+            .replace(/[۰-۹]/g, (digit) =>
+              "۰۱۲۳۴۵۶۷۸۹".indexOf(digit)
+            )
+            .replace(/[,٬،\s]/g, "")
+        )
+
+        newEmployee[column.key] =
+          Number.isFinite(numeric) ? numeric : raw
+      } else {
+        newEmployee[column.key] = raw
+      }
+    }
+
+    if (onEmployeesChange) {
+      await onEmployeesChange([
+        ...employees,
+        newEmployee,
+      ])
+    }
+
+    // نمایش همان واحد/زیرواحدی که کارمند در آن ثبت شد
+    const parts = splitSubPath(newEmployeeSubPath)
+
+    let targetChildId = null
+    let siblings = department.children || []
+
+    for (const part of parts) {
+      const node = siblings.find(
+        (child) =>
+          normalizeText(child.name) ===
+          normalizeText(part)
+      )
+
+      if (!node) {
+        break
+      }
+
+      targetChildId = node.id
+      siblings = node.children || []
+    }
+
+    setShowAllEmployees(false)
+    setSelectedDepartmentId(department.id)
+    setSelectedChildId(targetChildId)
+    setSearchText("")
+
+    setExpandedDepartments((current) => ({
+      ...current,
+      [department.id]: true,
+    }))
+
+    setShowAddEmployee(false)
+    setNewEmployeeForm({})
+  }
+
+  /* =========================================================
      Toggle verification
   ========================================================= */
 
@@ -1495,6 +1646,23 @@ function HumanResources({
                         )}
                       </span>
 
+                      {/* Add employee to root department */}
+
+                      <button
+                        onClick={() =>
+                          openAddEmployee(
+                            department.id,
+                            ""
+                          )
+                        }
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-[#d4a017]/10 hover:text-[#f0c040]"
+                        title="افزودن کارمند به این واحد"
+                      >
+                        <UserPlus
+                          size={15}
+                        />
+                      </button>
+
                       {/* Delete root department */}
 
                       <button
@@ -1534,6 +1702,18 @@ function HumanResources({
                             onAddChild={openAddChild}
                             onDelete={
                               handleDeleteSubdepartment
+                            }
+                            onAddEmployee={(
+                              dept,
+                              node,
+                              pathNames
+                            ) =>
+                              openAddEmployee(
+                                dept.id,
+                                joinSubPath(
+                                  pathNames
+                                )
+                              )
                             }
                           />
                         </div>
@@ -1652,6 +1832,20 @@ function HumanResources({
               </button>
 
               <button
+                onClick={
+                  openAddEmployeeFromSelection
+                }
+                disabled={
+                  departments.length === 0
+                }
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#d4a017]/50 bg-[#202020] px-4 py-2.5 text-sm font-bold text-[#f0c040] transition hover:bg-[#d4a017]/10 disabled:cursor-not-allowed disabled:opacity-40"
+                title="افزودن دستی کارمند به واحد/زیرواحد انتخاب‌شده"
+              >
+                <UserPlus size={17} />
+                کارمند جدید
+              </button>
+
+              <button
                 onClick={() =>
                   setShowAddColumn(true)
                 }
@@ -1748,6 +1942,9 @@ function HumanResources({
                   setSelectedChildId(
                     null
                   )
+                }
+                onAddEmployee={
+                  openAddEmployeeFromSelection
                 }
               />
             ) : (
@@ -1980,6 +2177,166 @@ function HumanResources({
               className="rounded-xl bg-[#d4a017] px-5 py-2.5 text-sm font-bold text-black hover:bg-[#f0c040]"
             >
               افزودن
+            </button>
+
+          </div>
+        </Modal>
+      )}
+
+      {/* =====================================================
+          Add Employee Modal
+      ===================================================== */}
+
+      {showAddEmployee && (
+        <Modal
+          title="افزودن کارمند جدید"
+          onClose={() =>
+            setShowAddEmployee(false)
+          }
+        >
+          <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1">
+
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">
+                نام و نام خانوادگی *
+              </label>
+
+              <input
+                autoFocus
+                value={newEmployeeForm.name || ""}
+                onChange={(event) =>
+                  setNewEmployeeForm(
+                    (current) => ({
+                      ...current,
+                      name: event.target.value,
+                    })
+                  )
+                }
+                placeholder="مثلاً علی رضایی"
+                className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm outline-none focus:border-[#d4a017]"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">
+                واحد
+              </label>
+
+              <select
+                value={newEmployeeDepartmentId}
+                onChange={(event) => {
+                  setNewEmployeeDepartmentId(
+                    event.target.value
+                  )
+                  setNewEmployeeSubPath("")
+                }}
+                className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm text-white outline-none focus:border-[#d4a017]"
+              >
+                {departments.map((department) => (
+                  <option
+                    key={department.id}
+                    value={department.id}
+                    className="bg-[#181818]"
+                  >
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs text-gray-400">
+                زیرواحد
+              </label>
+
+              <select
+                value={newEmployeeSubPath}
+                disabled={
+                  flattenChildren(
+                    departments.find(
+                      (department) =>
+                        department.id ===
+                        newEmployeeDepartmentId
+                    )?.children || []
+                  ).length === 0
+                }
+                onChange={(event) =>
+                  setNewEmployeeSubPath(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm text-white outline-none focus:border-[#d4a017] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <option
+                  value=""
+                  className="bg-[#181818]"
+                >
+                  بدون زیرواحد (مستقیم زیر واحد اصلی)
+                </option>
+
+                {flattenChildren(
+                  departments.find(
+                    (department) =>
+                      department.id ===
+                      newEmployeeDepartmentId
+                  )?.children || []
+                ).map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.path}
+                    className="bg-[#181818]"
+                  >
+                    {option.path}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {columns.map((column) => (
+                <div key={column.key}>
+                  <label className="mb-1 block text-xs text-gray-400">
+                    {column.label}
+                  </label>
+
+                  <input
+                    value={
+                      newEmployeeForm[column.key] ?? ""
+                    }
+                    onChange={(event) =>
+                      setNewEmployeeForm(
+                        (current) => ({
+                          ...current,
+                          [column.key]:
+                            event.target.value,
+                        })
+                      )
+                    }
+                    placeholder="اختیاری"
+                    className="w-full rounded-xl border border-white/10 bg-[#181818] px-4 py-2.5 text-sm outline-none placeholder:text-gray-700 focus:border-[#d4a017]"
+                  />
+                </div>
+              ))}
+            </div>
+
+          </div>
+
+          <div className="mt-4 flex justify-end gap-2">
+
+            <button
+              onClick={() =>
+                setShowAddEmployee(false)
+              }
+              className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-gray-400 hover:text-white"
+            >
+              لغو
+            </button>
+
+            <button
+              onClick={handleAddEmployee}
+              className="rounded-xl bg-[#d4a017] px-5 py-2.5 text-sm font-bold text-black hover:bg-[#f0c040]"
+            >
+              افزودن کارمند
             </button>
 
           </div>
@@ -2356,6 +2713,7 @@ function EmptyEmployees({
   selectedChild,
   showAllEmployees,
   onClearChild,
+  onAddEmployee,
 }) {
   return (
     <div className="flex min-h-[350px] flex-col items-center justify-center p-6 text-center">
@@ -2375,6 +2733,16 @@ function EmptyEmployees({
             ? `در زیرواحد «${selectedChild.name}» از واحد «${selectedDepartment?.name}» کارمندی وجود ندارد. اگر می‌خواهی کارمندی را به این بخش منتقل کنی، از جدول کارکنان واحد اصلی استفاده کن و واحد/زیرواحد او را تغییر بده.`
             : `در واحد «${selectedDepartment?.name}» کارمندی وجود ندارد.`}
       </p>
+
+      {onAddEmployee && (
+        <button
+          onClick={onAddEmployee}
+          className="mt-4 flex items-center gap-2 rounded-xl bg-[#d4a017] px-4 py-2.5 text-xs font-bold text-black hover:bg-[#f0c040]"
+        >
+          <UserPlus size={15} />
+          افزودن کارمند
+        </button>
+      )}
 
       {selectedChild && (
         <button
